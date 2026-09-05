@@ -35,4 +35,8 @@ CORS_ORIGIN_REGEX = (
 )
 
 if not MONGO_URL:
-    raise RuntimeError(f"MONGO_URL is not set. Expected it in {ROOT / '.env'}")
+    raise RuntimeError(
+        "MONGO_URL is not set. Locally, put it in "
+        f"{ROOT / '.env'}. When deployed, set it as an environment variable "
+        "on the host (Render: Settings -> Environment)."
+    )
