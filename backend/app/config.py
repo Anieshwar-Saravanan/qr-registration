@@ -14,6 +14,7 @@ DB_NAME = os.getenv("DB_NAME", "qr_registration")
 
 # Vite's dev server, always allowed so local work needs no configuration.
 _DEV_ORIGINS = [
+    "https://qr-registration-seven.vercel.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://localhost:5173",
