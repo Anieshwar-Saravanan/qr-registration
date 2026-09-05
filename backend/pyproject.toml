@@ -1,0 +1,21 @@
+[project]
+name = "qr-registration-backend"
+version = "0.1.0"
+description = "FastAPI backend for QR-based event registration"
+requires-python = ">=3.12"
+dependencies = [
+    "certifi>=2026.7.22",
+    "fastapi>=0.141.1",
+    "openpyxl>=3.1.5",
+    "pillow>=12.3.0",
+    "pydantic[email]>=2.13.5",
+    "pymongo>=4.18.0",
+    "python-dotenv>=1.2.3",
+    "python-multipart>=0.0.32",
+    "qrcode>=8.2",
+    "uvicorn[standard]>=0.52.4",
+]
+
+# This is an application, not a distributable package - no wheel to build.
+[tool.uv]
+package = false
