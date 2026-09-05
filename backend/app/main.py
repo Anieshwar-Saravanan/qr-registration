@@ -36,7 +36,9 @@ app.add_middleware(
 app.include_router(users.router)
 app.include_router(events.router)
 
-
+@app.get("/")
+async def root() -> dict:
+    return {"message": "QR Registration API is running."}
 @app.get("/api/health")
 async def health() -> dict:
     return {"status": "ok"}
