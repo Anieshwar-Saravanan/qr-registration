@@ -47,6 +47,53 @@ Accept the self-signed certificate warning once per device.
 
 Seed sample attendees: `cd backend && uv run python seed.py`
 
+## Deployment
+
+The frontend and backend deploy **separately**. Vercel runs Python as
+serverless functions, which breaks the pooled Mongo connection this app relies
+on — every cold invocation would open a new TLS connection to Atlas, and the
+`lifespan` startup hook does not run meaningfully. So:
+
+- **Frontend → Vercel** (static Vite build; exactly what Vercel is best at)
+- **Backend → Render / Railway / Fly** (a long-lived process, so pooling works)
+
+### Frontend on Vercel
+
+1. Import the GitHub repo, then set **Root Directory = `frontend`** — the repo
+   root has no `package.json` and the build will fail without this.
+2. Framework preset: Vite (auto-detected). Build `npm run build`, output `dist`.
+3. Environment variable:
+   ```
+   VITE_API_BASE=https://<your-backend-host>
+   ```
+   No trailing slash. **Vite inlines this at build time**, so changing it later
+   requires a redeploy, not just an env var edit.
+
+### Backend
+
+Set these on the backend host:
+
+```
+MONGO_URL=mongodb+srv://...        # same as local .env
+DB_NAME=qr_registration
+CORS_ORIGINS=https://<your-app>.vercel.app
+ALLOW_VERCEL_PREVIEWS=1            # optional: allow *.vercel.app preview URLs
+```
+
+Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+In Atlas → Network Access, add `0.0.0.0/0`: these hosts have rotating egress
+IPs. Authentication and TLS still apply.
+
+### Order matters
+
+The frontend is useless until `VITE_API_BASE` points at a live backend, so
+deploy the backend first, then build the frontend against it.
+
+Both must be HTTPS. A browser on an `https://` page blocks requests to an
+`http://` API as mixed content, and the scanner's camera needs a secure context
+regardless.
+
 ## API
 
 | Method | Path | Purpose |

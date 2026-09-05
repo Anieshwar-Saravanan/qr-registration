@@ -1,7 +1,16 @@
+# Secrets
 .env
+.env.local
+*.env.local
+
+# Python
 .venv/
 __pycache__/
 *.pyc
+
+# Node
 node_modules/
 dist/
-test_connection.py.DS_Store
+
+# macOS
+.DS_Store

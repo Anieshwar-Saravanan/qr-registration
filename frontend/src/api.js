@@ -1,7 +1,23 @@
-/** Thin wrapper over the FastAPI backend. Vite proxies /api to :8000 in dev. */
+/** Thin wrapper over the FastAPI backend.
+ *
+ * In dev, VITE_API_BASE is unset and paths stay relative ("/api/..."), which
+ * Vite proxies to the local backend - one origin, no CORS.
+ *
+ * In production the frontend and backend live on different hosts, so
+ * VITE_API_BASE holds the backend's full origin, e.g.
+ *   VITE_API_BASE=https://qr-registration-api.onrender.com
+ *
+ * Vite inlines this at BUILD time, not runtime: changing it on Vercel requires
+ * a redeploy, not just an env var edit.
+ */
+const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/+$/, '')
+
+/** Absolute URL for an API path. Also used for <a href> links (CSV, ZIP, PNG),
+ *  which must point at the backend rather than the Vercel origin. */
+export const apiUrl = (path) => `${API_BASE}${path}`
 
 async function request(path, options) {
-  const res = await fetch(path, options)
+  const res = await fetch(apiUrl(path), options)
   if (!res.ok) {
     let detail = `Request failed (${res.status})`
     try {
@@ -60,12 +76,14 @@ export const bulkCreate = (users) =>
 
 export const getQr = (userId) => request(`/api/users/${userId}/qr?format=base64&box_size=12`)
 
-export const qrPngUrl = (userId) => `/api/users/${userId}/qr?box_size=16`
+export const qrPngUrl = (userId) => apiUrl(`/api/users/${userId}/qr?box_size=16`)
 
 export function exportZipUrl(q = '') {
-  return q.trim()
-    ? `/api/users/qr/export.zip?q=${encodeURIComponent(q.trim())}`
-    : '/api/users/qr/export.zip'
+  return apiUrl(
+    q.trim()
+      ? `/api/users/qr/export.zip?q=${encodeURIComponent(q.trim())}`
+      : '/api/users/qr/export.zip',
+  )
 }
 
 // --- Phase 2: events, scanning, registrations ---
@@ -109,7 +127,7 @@ export const manualRegister = (eventId, userId, deviceId) =>
   })
 
 export async function undoRegistration(eventId, userId) {
-  const res = await fetch(`/api/events/${eventId}/registrations/${userId}`, { method: 'DELETE' })
+  const res = await fetch(apiUrl(`/api/events/${eventId}/registrations/${userId}`), { method: 'DELETE' })
   if (!res.ok && res.status !== 204) throw new Error(`Could not undo (${res.status})`)
 }
 
@@ -122,4 +140,4 @@ export function listRegistrations(eventId, { q = '', limit = 50, offset = 0 } = 
 export const eventStats = (eventId) => request(`/api/events/${eventId}/stats`)
 
 export const registrationsCsvUrl = (eventId) =>
-  `/api/events/${eventId}/registrations/export.csv`
+  apiUrl(`/api/events/${eventId}/registrations/export.csv`)
