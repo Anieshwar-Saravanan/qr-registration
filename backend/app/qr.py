@@ -15,6 +15,10 @@ from qrcode.constants import ERROR_CORRECT_M
 PAYLOAD_VERSION = 1
 
 
+class InvalidPayload(Exception):
+    """A scanned string is not a registration QR we can act on."""
+
+
 def build_payload(user: dict) -> str:
     """Return the string encoded into the QR for a given user document.
 
@@ -62,3 +66,43 @@ def render_data_uri(data: str, box_size: int = 10) -> str:
     """PNG as a base64 data URI, for dropping straight into an <img src>."""
     b64 = base64.b64encode(render_png(data, box_size=box_size)).decode("ascii")
     return f"data:image/png;base64,{b64}"
+
+
+def parse_payload(raw: str) -> str:
+    """Extract the user_id from a scanned QR string.
+
+    The inverse of `build_payload`, deliberately in the same file: when the
+    payload becomes a signed token, both sides change together and nothing
+    else in the codebase has to know.
+
+    Only the user_id is returned. The name and email inside the QR are display
+    hints from whenever the badge was printed - the database is the source of
+    truth at scan time, so a badge printed before a name correction still
+    registers the right person with the right details.
+    """
+    if not raw or not raw.strip():
+        raise InvalidPayload("Empty scan.")
+
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        raise InvalidPayload("That is not a registration QR code.")
+
+    if not isinstance(data, dict):
+        raise InvalidPayload("That is not a registration QR code.")
+
+    version = data.get("v")
+    if version != PAYLOAD_VERSION:
+        raise InvalidPayload(
+            f"This badge uses QR format v{version}, but this app expects "
+            f"v{PAYLOAD_VERSION}. The badge may need reprinting."
+        )
+
+    if data.get("type") != "user":
+        raise InvalidPayload("That QR code is not an attendee badge.")
+
+    user_id = data.get("user_id")
+    if not isinstance(user_id, str) or not user_id.strip():
+        raise InvalidPayload("Badge is missing its attendee id.")
+
+    return user_id.strip()

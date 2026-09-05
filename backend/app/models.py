@@ -7,7 +7,10 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class UserCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+    # Validated in `require_name` rather than with min_length, so a name of
+    # only spaces reports "Name is required" instead of Pydantic's
+    # "String should have at least 1 character".
+    name: str = Field(max_length=120)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=32)
     organization: str | None = Field(default=None, max_length=120)
@@ -19,7 +22,15 @@ class UserCreate(BaseModel):
         # "A@x.com" and "a@x.com" would both insert as separate people.
         return v.strip().lower()
 
-    @field_validator("name", "phone", "organization")
+    @field_validator("name")
+    @classmethod
+    def require_name(cls, v: str) -> str:
+        name = (v or "").strip()
+        if not name:
+            raise ValueError("Name is required.")
+        return name
+
+    @field_validator("phone", "organization")
     @classmethod
     def strip_blank_to_none(cls, v: str | None) -> str | None:
         if v is None:
@@ -77,3 +88,133 @@ class BulkResult(BaseModel):
 def to_user_out(doc: dict) -> UserOut:
     """Mongo document -> API model, dropping the internal _id."""
     return UserOut(**{k: v for k, v in doc.items() if k != "_id"})
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: events, registrations and scanning
+# ---------------------------------------------------------------------------
+
+class EventCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    venue: str | None = Field(default=None, max_length=160)
+    starts_at: datetime | None = None
+    capacity: int | None = Field(default=None, ge=1, le=1_000_000)
+
+
+class EventUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    venue: str | None = Field(default=None, max_length=160)
+    starts_at: datetime | None = None
+    capacity: int | None = Field(default=None, ge=1, le=1_000_000)
+    status: Literal["open", "closed"] | None = None
+
+
+class EventOut(BaseModel):
+    event_id: str
+    name: str
+    venue: str | None = None
+    starts_at: datetime | None = None
+    capacity: int | None = None
+    status: Literal["open", "closed"]
+    created_at: datetime
+    registered_count: int = 0
+
+
+ScanStatus = Literal[
+    "registered",
+    "already_registered",
+    "unknown_user",
+    "invalid_qr",
+    "event_closed",
+    "event_full",
+]
+
+
+class ScanRequest(BaseModel):
+    """One scan, from a live camera or replayed from an offline queue."""
+
+    payload: str = Field(max_length=4096)
+    device_id: str | None = Field(default=None, max_length=64)
+    # Idempotency key generated on the device, so a retried sync cannot
+    # produce a second registration.
+    scan_id: str | None = Field(default=None, max_length=64)
+    # When the scan actually happened. A scan queued offline and synced three
+    # hours later must still record the time the person walked in.
+    scanned_at: datetime | None = None
+
+
+class ScanResult(BaseModel):
+    status: ScanStatus
+    message: str
+    user: UserOut | None = None
+    registered_at: datetime | None = None
+    scan_id: str | None = None
+
+
+class SyncRequest(BaseModel):
+    scans: list[ScanRequest] = Field(min_length=1, max_length=500)
+
+
+class SyncResult(BaseModel):
+    results: list[ScanResult]
+    summary: dict[str, int]
+
+
+class ManualRegister(BaseModel):
+    user_id: str = Field(min_length=1, max_length=64)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class RegistrationOut(BaseModel):
+    registration_id: str
+    event_id: str
+    user_id: str
+    name: str
+    email: str
+    phone: str | None = None
+    organization: str | None = None
+    registered_at: datetime
+    method: Literal["scan", "manual"]
+    device_id: str | None = None
+    # Set only when a device's clock disagreed sharply with the server's.
+    clock_skew_seconds: int | None = None
+
+
+class RegistrationPage(BaseModel):
+    items: list[RegistrationOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class EventStats(BaseModel):
+    event_id: str
+    registered: int
+    total_attendees: int
+    capacity: int | None = None
+    by_method: dict[str, int]
+    last_registration_at: datetime | None = None
+
+
+def to_event_out(doc: dict, registered_count: int = 0) -> EventOut:
+    return EventOut(
+        **{k: v for k, v in doc.items() if k != "_id"},
+        registered_count=registered_count,
+    )
+
+
+def to_registration_out(doc: dict) -> RegistrationOut:
+    snap = doc.get("user_snapshot", {})
+    return RegistrationOut(
+        registration_id=doc["registration_id"],
+        event_id=doc["event_id"],
+        user_id=doc["user_id"],
+        name=snap.get("name", "(unknown)"),
+        email=snap.get("email", ""),
+        phone=snap.get("phone"),
+        organization=snap.get("organization"),
+        registered_at=doc["registered_at"],
+        method=doc.get("method", "scan"),
+        device_id=doc.get("device_id"),
+        clock_skew_seconds=doc.get("clock_skew_seconds"),
+    )

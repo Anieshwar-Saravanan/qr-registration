@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import CORS_ORIGINS
 from app.db import connect, disconnect
-from app.routers import users
+from app.routers import events, users
 
 
 @asynccontextmanager
@@ -20,7 +20,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="QR Registration API",
     version="0.1.0",
-    description="Phase 1: generate QR codes from user records.",
+    description="Generate attendee QR codes and register them at events by scanning.",
     lifespan=lifespan,
 )
 
@@ -33,6 +33,7 @@ app.add_middleware(
 )
 
 app.include_router(users.router)
+app.include_router(events.router)
 
 
 @app.get("/api/health")

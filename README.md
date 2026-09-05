@@ -1,6 +1,7 @@
-# QR Registration — Phase 1
+# QR Registration
 
-Generates a scannable QR code for each attendee stored in MongoDB Atlas.
+Generates a scannable QR badge for each attendee, then registers them into an
+event by scanning that badge at the door — offline-capable.
 
 - **Backend:** FastAPI + PyMongo async (`AsyncMongoClient`)
 - **Frontend:** React 18 + Vite 5
@@ -35,6 +36,15 @@ cd frontend && npm install && npm run dev
 
 Open <http://localhost:5173>. Interactive API docs at <http://localhost:8000/docs>.
 
+**Testing the scanner on a phone** needs HTTPS — browsers expose the camera only
+on `https://` or `localhost`, so a plain LAN address silently never starts it:
+
+```bash
+cd frontend && npm run dev:https      # serves on https://<your-lan-ip>:5173
+```
+
+Accept the self-signed certificate warning once per device.
+
 Seed sample attendees: `cd backend && uv run python seed.py`
 
 ## API
@@ -63,6 +73,65 @@ Versioned JSON, compact-separated:
 goes into a QR. Phase 2's switch to an opaque signed token changes that function
 and nothing else — `user_id` is already stored on every document and carried in
 every payload, so no schema migration is needed.
+
+## Events and scanning
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` `GET` | `/api/events` | Create / list events with registration counts |
+| `PATCH` | `/api/events/{id}` | Rename, set capacity, open or close |
+| `POST` | `/api/events/{id}/scan` | Register whoever the scanned badge identifies |
+| `POST` | `/api/events/{id}/scan/sync` | Replay a batch of scans queued offline |
+| `POST` | `/api/events/{id}/register` | Manual registration by `user_id` |
+| `DELETE` | `/api/events/{id}/registrations/{user_id}` | Undo a mis-scan |
+| `GET` | `/api/events/{id}/registrations` | Who has checked in — supports `?q=` |
+| `GET` | `/api/events/{id}/stats` | Counts by method, latest registration |
+| `GET` | `/api/events/{id}/registrations/export.csv` | Post-event export |
+
+A scan resolves to one of six outcomes: `registered`, `already_registered`,
+`unknown_user`, `invalid_qr`, `event_closed`, `event_full`.
+
+**Double-scanning is settled by the database.** A unique compound index on
+`(event_id, user_id)` means a repeated scan — or two volunteers scanning the
+same badge simultaneously — produces exactly one registration and a friendly
+"already registered" for the rest. Verified with 12 concurrent requests: 1
+registered, 11 already registered, 1 row. An application-level check-then-insert
+would have a race window that a busy door finds within minutes.
+
+**The database is the source of truth at scan time.** Only `user_id` is read
+from the QR; the name and email inside it are display hints from whenever the
+badge was printed. A badge printed before a name correction still registers the
+right person with the right details.
+
+## Offline scanning
+
+Scans are written to IndexedDB **first** and uploaded second, so the door keeps
+moving whether or not the network does. A persistent indicator shows connection
+state and queue depth; sync runs on reconnect, every 15s while online, and on
+demand.
+
+Three things make offline work rather than merely not-crash:
+
+- **The roster is cached on the device** (`Download roster for offline`). Without
+  it an offline scan is blind — it could not show a name, reject a badge that is
+  not on the list, or notice a repeat. Download it before going offline.
+- **Original scan times are preserved.** Each queued scan carries its own
+  `scanned_at`, so a scan synced three hours late still records when the person
+  actually walked in. Verified: scans queued 2 hours prior synced back as 120,
+  117 and 114 minutes old.
+- **Device clocks are sanity-checked, not blindly trusted.** Past-dated scans are
+  expected and accepted (that is what an offline queue *is*); only future-dated
+  or absurdly old timestamps are replaced with server time and flagged with
+  `clock_skew_seconds`.
+
+Two volunteers offline can both scan the same person — neither device can know.
+On sync the first write wins and the second is reported as already registered,
+in the sync summary rather than silently.
+
+`frontend/src/lib/payload.js` mirrors `backend/app/qr.py` so a device can parse
+badges without a network. That duplication is deliberate and the two must change
+together; the server re-validates every scan regardless, so the client copy is a
+UX fast path, never the security boundary.
 
 ## Spreadsheet import
 
@@ -110,6 +179,12 @@ available on the M0 tier and is the upgrade path.
 ## Notes
 
 - Vite is pinned to 5.x because Node v18 is installed; Vite 6+ needs Node 20+.
+  This also forces `@vitejs/plugin-basic-ssl` to the v1 line.
+- The scanner bundle (~340KB) is lazy-loaded, so opening the app costs 162KB
+  rather than 502KB — it matters on venue wifi.
+- Volunteers scan without logging in. Each browser generates a stable device id
+  recorded against every scan, giving most of the audit value of accounts at
+  none of the cost.
 - The Mongo client is created once in the FastAPI lifespan and reused, so there
   is no TLS handshake per request.
 - QR images are never stored. They are derived from the user record, so

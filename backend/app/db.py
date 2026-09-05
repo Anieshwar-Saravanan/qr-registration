@@ -34,6 +34,19 @@ def get_db() -> AsyncDatabase:
 
 async def _ensure_indexes(db: AsyncDatabase) -> None:
     # Email is the natural identity of an attendee; user_id is what the QR
-    # carries and what Phase 2 will look up on every scan.
+    # carries and what gets looked up on every scan.
     await db.users.create_index("email", unique=True)
     await db.users.create_index("user_id", unique=True)
+
+    await db.events.create_index("event_id", unique=True)
+
+    # The compound unique index is the whole defence against double
+    # registration. Two volunteers scanning the same badge at the same moment,
+    # or one badge scanned twice, are both settled here by the database
+    # rejecting the second write. An application-level "check then insert"
+    # would have a race window that a busy door would find within minutes.
+    await db.registrations.create_index(
+        [("event_id", 1), ("user_id", 1)], unique=True, name="uniq_event_user"
+    )
+    # Listing a single event's registrations, newest first.
+    await db.registrations.create_index([("event_id", 1), ("registered_at", -1)])
