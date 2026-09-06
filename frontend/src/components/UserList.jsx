@@ -1,4 +1,4 @@
-import { exportZipUrl } from '../api'
+import { badgesPdfUrl, exportZipUrl } from '../api'
 
 export default function UserList({
   users,
@@ -19,9 +19,14 @@ export default function UserList({
           Attendees <span className="count">{total}</span>
         </h2>
         {total > 0 && (
-          <a className="button secondary small" href={exportZipUrl(query)}>
-            Download all QRs
-          </a>
+          <div className="header-actions">
+            <a className="button secondary small" href={badgesPdfUrl(query)}>
+              Print badges (PDF)
+            </a>
+            <a className="button secondary small" href={exportZipUrl(query)}>
+              QR images (ZIP)
+            </a>
+          </div>
         )}
       </div>
 

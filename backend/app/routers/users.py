@@ -14,6 +14,7 @@ from pymongo.errors import BulkWriteError, DuplicateKeyError
 from app.db import get_db
 from app.importer import parse_rows, read_table
 from app.models import (
+    BadgeRequest,
     BulkCreate,
     BulkResult,
     ImportPreview,
@@ -22,6 +23,7 @@ from app.models import (
     UserPage,
     to_user_out,
 )
+from app.pdf import PER_PAGE, build_badge_pdf
 from app.qr import build_payload, render_data_uri, render_png
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -173,17 +175,29 @@ async def bulk_create(payload: BulkCreate) -> BulkResult:
         # ordered=False: one duplicate must not abort the remaining inserts,
         # and it is a single round trip to Atlas rather than one per row.
         result = await get_db().users.insert_many(docs, ordered=False)
-        return BulkResult(inserted=len(result.inserted_ids), skipped=0, skipped_emails=[])
+        return BulkResult(
+            inserted=len(result.inserted_ids),
+            skipped=0,
+            skipped_emails=[],
+            user_ids=[d["user_id"] for d in docs],
+        )
     except BulkWriteError as e:
         dupes = [err for err in e.details.get("writeErrors", []) if err.get("code") == 11000]
         if len(dupes) != len(e.details.get("writeErrors", [])):
             raise HTTPException(status_code=500, detail="Bulk insert failed unexpectedly.")
 
         skipped_emails = [err.get("op", {}).get("email", "unknown") for err in dupes]
+        # Everything the server did not reject went in; identify those by
+        # position so the badge sheet covers exactly the new arrivals.
+        failed_indexes = {err["index"] for err in dupes if "index" in err}
+        inserted_ids = [
+            d["user_id"] for i, d in enumerate(docs) if i not in failed_indexes
+        ]
         return BulkResult(
             inserted=e.details.get("nInserted", 0),
             skipped=len(dupes),
             skipped_emails=skipped_emails,
+            user_ids=inserted_ids,
         )
 
 
@@ -230,6 +244,47 @@ async def export_all_qrs(
             "X-QR-Count": str(count),
         },
     )
+
+
+def _pdf_response(users: list[dict], stem: str) -> Response:
+    pages = -(-len(users) // PER_PAGE)  # ceiling division
+    return Response(
+        content=build_badge_pdf(users),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{stem}.pdf"',
+            "X-Badge-Count": str(len(users)),
+            "X-Page-Count": str(pages),
+            # The browser needs these visible to read them off a fetch().
+            "Access-Control-Expose-Headers": "X-Badge-Count, X-Page-Count, Content-Disposition",
+        },
+    )
+
+
+@router.get("/qr/export.pdf")
+async def export_badges_pdf(q: str | None = Query(default=None, max_length=120)):
+    """Printable badge sheet for every matching attendee: 16 QR codes per A4."""
+    users = [doc async for doc in get_db().users.find(_search_filter(q)).sort("name", 1)]
+    if not users:
+        raise HTTPException(status_code=404, detail="No attendees match; nothing to print.")
+    return _pdf_response(users, "attendee-badges")
+
+
+@router.post("/qr/export.pdf")
+async def export_badges_pdf_for(payload: BadgeRequest):
+    """Badge sheet for a specific set of attendees - the ones just imported.
+
+    Ordering follows the request so a sheet matches the order of the uploaded
+    spreadsheet, which makes handing badges out far easier.
+    """
+    found = {
+        doc["user_id"]: doc
+        async for doc in get_db().users.find({"user_id": {"$in": payload.user_ids}})
+    }
+    users = [found[uid] for uid in payload.user_ids if uid in found]
+    if not users:
+        raise HTTPException(status_code=404, detail="None of those attendees exist.")
+    return _pdf_response(users, "attendee-badges")
 
 
 @router.get("/{user_id}/qr")

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { bulkCreate, previewImport } from '../api'
+import { bulkCreate, downloadBadgesFor, previewImport } from '../api'
 
 const STATUS_LABELS = {
   ok: 'Will import',
@@ -14,6 +14,7 @@ export default function ImportPanel({ onImported }) {
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [badgeBusy, setBadgeBusy] = useState(false)
   const fileInput = useRef(null)
 
   function reset() {
@@ -38,6 +39,18 @@ export default function ImportPanel({ onImported }) {
       setPreview(null)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function handleBadges() {
+    setBadgeBusy(true)
+    setError(null)
+    try {
+      await downloadBadgesFor(result.user_ids)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBadgeBusy(false)
     }
   }
 
@@ -88,6 +101,15 @@ export default function ImportPanel({ onImported }) {
           <strong>
             Imported {result.inserted} attendee{result.inserted === 1 ? '' : 's'}.
           </strong>
+          {result.user_ids?.length > 0 && (
+            <p className="badge-cta">
+              <button type="button" onClick={handleBadges} disabled={badgeBusy}>
+                {badgeBusy
+                  ? 'Building PDF…'
+                  : `Print badges for these ${result.user_ids.length} (PDF)`}
+              </button>
+            </p>
+          )}
           {result.skipped > 0 && (
             <p className="muted">
               Skipped {result.skipped} already-registered{' '}

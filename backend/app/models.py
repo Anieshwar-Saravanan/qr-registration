@@ -83,6 +83,9 @@ class BulkResult(BaseModel):
     inserted: int
     skipped: int
     skipped_emails: list[str]
+    # Ids of the attendees actually created, so a badge sheet can be printed
+    # for exactly this import rather than the whole database.
+    user_ids: list[str] = []
 
 
 def to_user_out(doc: dict) -> UserOut:
@@ -218,3 +221,9 @@ def to_registration_out(doc: dict) -> RegistrationOut:
         device_id=doc.get("device_id"),
         clock_skew_seconds=doc.get("clock_skew_seconds"),
     )
+
+
+class BadgeRequest(BaseModel):
+    """Specific attendees to put on a badge sheet, e.g. the ones just imported."""
+
+    user_ids: list[str] = Field(min_length=1, max_length=2000)

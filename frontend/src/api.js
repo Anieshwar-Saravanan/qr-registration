@@ -141,3 +141,43 @@ export const eventStats = (eventId) => request(`/api/events/${eventId}/stats`)
 
 export const registrationsCsvUrl = (eventId) =>
   apiUrl(`/api/events/${eventId}/registrations/export.csv`)
+
+// --- printable badge sheets (16 QR codes per A4) ---
+
+/** Badge sheet for everyone matching the current search. */
+export const badgesPdfUrl = (q = '') =>
+  apiUrl(q.trim() ? `/api/users/qr/export.pdf?q=${encodeURIComponent(q.trim())}` : '/api/users/qr/export.pdf')
+
+/** Badge sheet for a specific set of attendees, e.g. the ones just imported.
+ *
+ * A POST cannot be an <a href>, so the PDF is fetched as a blob and handed to
+ * a temporary link. The object URL is revoked afterwards to release the memory.
+ */
+export async function downloadBadgesFor(userIds, filename = 'attendee-badges.pdf') {
+  const res = await fetch(apiUrl('/api/users/qr/export.pdf'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_ids: userIds }),
+  })
+  if (!res.ok) {
+    let detail = `Could not build the badge sheet (${res.status})`
+    try {
+      detail = (await res.json()).detail ?? detail
+    } catch {
+      /* no JSON body */
+    }
+    throw new Error(detail)
+  }
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+
+  return Number(res.headers.get('X-Page-Count') ?? 0)
+}

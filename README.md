@@ -106,6 +106,8 @@ regardless.
 | `POST` | `/api/users/import/preview` | Parse a .csv/.xlsx and report what would happen — **writes nothing** |
 | `POST` | `/api/users/bulk` | Commit many attendees, skipping existing emails |
 | `GET` | `/api/users/qr/export.zip` | Every QR as a ZIP of PNGs (respects `?q=`) |
+| `GET` | `/api/users/qr/export.pdf` | Printable badge sheet, 16 per A4 (respects `?q=`) |
+| `POST` | `/api/users/qr/export.pdf` | Badge sheet for a specific `user_ids` list |
 | `GET` | `/api/users/{user_id}/payload` | The exact string encoded in the QR |
 
 ## QR payload
@@ -204,6 +206,32 @@ Handled deliberately, because real spreadsheets contain all of it:
 - Legacy `.xls`, rejected with an actionable message rather than a parse error
 
 Limits: 5MB, 5000 rows.
+
+## Printable badge sheets
+
+`backend/app/pdf.py` lays out **16 badges per A4** as a 4x4 grid with cut
+guides: QR code, name in bold, organization in grey beneath it. Attendees with
+no organization simply omit that line.
+
+Two ways in:
+
+- **After an import**, "Print badges for these N" covers exactly the attendees
+  that import created — `POST` with their `user_ids`, in spreadsheet order, so
+  the printed sheet matches the order you uploaded.
+- **From the attendee list**, "Print badges (PDF)" covers everyone matching the
+  current search, so one company's badges can be printed on their own.
+
+The QR is generated from the attendee record, which means a badge can only be
+printed for someone already in the database — a QR whose `user_id` does not
+exist would be rejected at the door. Import first, then print.
+
+Verified by rendering the PDF at 300dpi and decoding: 40 badges produce 3 pages
+and all 40 scan. Long names and organizations are ellipsised to fit the cell.
+
+**Limitation:** ReportLab's built-in fonts are Latin-1, so accented names
+("Zoë Müller") print correctly but non-Latin scripts degrade to `?`. The QR
+still carries the real record and scans correctly. Supporting other scripts
+means registering a TrueType font with the needed glyphs.
 
 ## Search
 

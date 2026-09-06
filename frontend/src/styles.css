@@ -430,3 +430,7 @@ button.secondary:hover, .button.secondary:hover { background: var(--bg); }
 }
 .corrections ul { margin: 6px 0 4px; padding-left: 18px; }
 .corrections li { margin: 3px 0; }
+
+.header-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge-cta { margin: 10px 0 0; }
+.badge-cta button { font-size: 13px; padding: 7px 13px; }
