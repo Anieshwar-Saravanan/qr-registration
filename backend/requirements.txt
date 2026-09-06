@@ -76,3 +76,4 @@ watchfiles==1.2.0
     # via uvicorn
 websockets==17.1
     # via uvicorn
+reportlab==5.0.1
