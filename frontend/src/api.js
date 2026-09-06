@@ -189,3 +189,15 @@ export const removeRegistrations = (eventId, userIds) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_ids: userIds }),
   })
+
+// --- winners ---
+
+export const listWinners = (eventId) => request(`/api/events/${eventId}/winners`)
+
+/** Replaces the whole winners list, so reordering is atomic. */
+export const setWinners = (eventId, winners) =>
+  request(`/api/events/${eventId}/winners`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ winners }),
+  })

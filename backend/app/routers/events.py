@@ -18,11 +18,14 @@ from app.models import (
     ManualRegister,
     RegistrationPage,
     RemoveRegistrations,
+    WinnerOut,
+    WinnersUpdate,
     ScanRequest,
     ScanResult,
     SyncRequest,
     SyncResult,
     to_event_out,
+    to_winner_out,
     to_registration_out,
 )
 from app.qr import InvalidPayload, parse_payload
@@ -95,6 +98,62 @@ async def update_event(event_id: str, payload: EventUpdate) -> EventOut:
 
     count = await get_db().registrations.count_documents({"event_id": event_id})
     return to_event_out(updated, count)
+
+
+# --------------------------------------------------------------------------
+# Winners
+# --------------------------------------------------------------------------
+
+@router.get("/{event_id}/winners", response_model=list[WinnerOut])
+async def list_winners(event_id: str) -> list[WinnerOut]:
+    event = await _find_event_or_404(event_id)
+    return [to_winner_out(w) for w in sorted(event.get("winners", []), key=lambda w: w["position"])]
+
+
+@router.put("/{event_id}/winners", response_model=list[WinnerOut])
+async def set_winners(event_id: str, payload: WinnersUpdate) -> list[WinnerOut]:
+    """Replace the event's winners.
+
+    The whole list is sent at once rather than one placing at a time, so
+    reordering never leaves two people briefly holding the same position.
+    """
+    await _find_event_or_404(event_id)
+
+    positions = [w.position for w in payload.winners]
+    if len(set(positions)) != len(positions):
+        raise HTTPException(status_code=400, detail="Two winners cannot share a position.")
+
+    ids = [w.user_id for w in payload.winners]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(status_code=400, detail="The same person cannot win twice.")
+
+    users = {
+        doc["user_id"]: doc
+        async for doc in get_db().users.find({"user_id": {"$in": ids}})
+    }
+    missing = [uid for uid in ids if uid not in users]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"{len(missing)} of those attendees no longer exist.")
+
+    # Names are snapshotted alongside the id, so a results image stays true to
+    # what was announced even if an attendee record is edited afterwards.
+    entries = sorted(
+        (
+            {
+                "position": w.position,
+                "user_id": w.user_id,
+                "name": users[w.user_id]["name"],
+                "email": users[w.user_id]["email"],
+                "phone": users[w.user_id].get("phone"),
+                "organization": users[w.user_id].get("organization"),
+            }
+            for w in payload.winners
+        ),
+        key=lambda w: w["position"],
+    )
+
+    await get_db().events.update_one({"event_id": event_id}, {"$set": {"winners": entries}})
+    return [to_winner_out(w) for w in entries]
 
 
 # --------------------------------------------------------------------------

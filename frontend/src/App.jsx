@@ -6,6 +6,7 @@ import UserList from './components/UserList'
 import QrPanel from './components/QrPanel'
 import EventsPanel from './components/EventsPanel'
 import RegistrationsPanel from './components/RegistrationsPanel'
+import WinnersPanel from './components/WinnersPanel'
 
 // html5-qrcode is ~350KB and only the Scan tab needs it. Loading it lazily
 // keeps the initial download small for phones on venue wifi.
@@ -122,11 +123,14 @@ export default function App() {
           <div className="column">
             <EventsPanel selectedId={event?.event_id} onSelect={setEvent} />
           </div>
-          <RegistrationsPanel
-            event={event}
-            refreshKey={regKey}
-            onChanged={refreshRegistrations}
-          />
+          <div className="column">
+            <RegistrationsPanel
+              event={event}
+              refreshKey={regKey}
+              onChanged={refreshRegistrations}
+            />
+            <WinnersPanel event={event} refreshKey={regKey} />
+          </div>
         </main>
       )}
 

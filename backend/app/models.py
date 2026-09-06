@@ -233,3 +233,35 @@ class RemoveRegistrations(BaseModel):
     """Attendees to un-register from an event."""
 
     user_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class WinnerEntry(BaseModel):
+    """One placing. Position 1 is first place."""
+
+    position: int = Field(ge=1, le=100)
+    user_id: str = Field(min_length=1, max_length=64)
+
+
+class WinnersUpdate(BaseModel):
+    # An empty list is meaningful: it clears the winners.
+    winners: list[WinnerEntry] = Field(default_factory=list, max_length=50)
+
+
+class WinnerOut(BaseModel):
+    position: int
+    user_id: str
+    name: str
+    email: str
+    phone: str | None = None
+    organization: str | None = None
+
+
+def to_winner_out(entry: dict) -> WinnerOut:
+    return WinnerOut(
+        position=entry["position"],
+        user_id=entry["user_id"],
+        name=entry.get("name", "(unknown)"),
+        email=entry.get("email", ""),
+        phone=entry.get("phone"),
+        organization=entry.get("organization"),
+    )

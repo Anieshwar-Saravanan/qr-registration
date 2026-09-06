@@ -134,6 +134,7 @@ every payload, so no schema migration is needed.
 | `POST` | `/api/events/{id}/register` | Manual registration by `user_id` |
 | `DELETE` | `/api/events/{id}/registrations/{user_id}` | Undo a mis-scan |
 | `POST` | `/api/events/{id}/registrations/remove` | Remove several at once (`user_ids`) |
+| `GET` `PUT` | `/api/events/{id}/winners` | Read / replace the event's placings |
 | `GET` | `/api/events/{id}/registrations` | Who has checked in — supports `?q=` |
 | `GET` | `/api/events/{id}/stats` | Counts by method, latest registration |
 | `GET` | `/api/events/{id}/registrations/export.csv` | Post-event export |
@@ -169,6 +170,35 @@ Removing someone un-registers them from that event only — they stay in the
 attendee list, their QR badge stays valid, and they can be registered again.
 Verified: remove, re-register, and the duplicate guard still fires on a second
 attempt.
+
+## Winners
+
+Winners are picked from the event's registered attendees, in order — 1st, 2nd,
+3rd and onwards — and reordered with arrows. Positions always renumber to 1..n,
+so removing second place promotes third rather than leaving a gap.
+
+`PUT` replaces the entire list rather than editing one placing at a time; a
+partial update could briefly leave two people sharing a position. The endpoint
+rejects duplicate positions, the same person winning twice, and unknown
+attendees.
+
+Names are snapshotted alongside the id, so a results image stays true to what
+was announced even if an attendee record is edited afterwards.
+
+**The shareable image** is drawn on a canvas in `frontend/src/lib/winnerImage.js`
+and downloaded as a PNG: a dark title band with the event name and venue, then a
+full table — **# · Name · Organization · Email · Phone** — with a
+gold/silver/bronze disc for the top three and the ordinal (`4th`, `12th`) beyond.
+Missing values render as an em dash rather than a blank cell.
+
+Column widths live in one `COLUMNS` array and the image width is derived from
+them, so adding or removing a column cannot leave the layout inconsistent.
+Rendered at 3x, and the preview is displayed at its design width rather than
+stretched — stretching upscales past the rendered resolution and looks soft.
+
+Canvas rather than server-side rendering: the browser always has usable fonts,
+whereas generating this on the backend would mean bundling a font for Render's
+Linux image. Every cell ellipsises to fit its column.
 
 ## Offline scanning
 
