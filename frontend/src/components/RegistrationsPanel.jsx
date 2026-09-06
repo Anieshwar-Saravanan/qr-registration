@@ -9,7 +9,7 @@ import {
   undoRegistration,
 } from '../api'
 import { getDeviceId } from '../lib/device'
-import { downloadRoster, getRoster, primeRegistered } from '../lib/roster'
+import { downloadRoster, getRoster, primeRegistered, unmarkRegistered } from '../lib/roster'
 import RegistrationsTable from './RegistrationsTable'
 
 const PAGE_SIZE = 50
@@ -42,8 +42,15 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
       setTotal(page.total)
       setStats(s)
       setError(null)
-      // Keep this device aware of who other volunteers have registered.
-      await primeRegistered(event.event_id, page.items.map((r) => r.user_id))
+      // Keep this device aware of who other volunteers have registered - and,
+      // when this page IS the whole registration list, of who is no longer
+      // registered. Anything less than the complete unfiltered list can only
+      // be merged in, never used to rebuild the set.
+      await primeRegistered(
+        event.event_id,
+        page.items.map((r) => r.user_id),
+        { replace: !query.trim() && page.items.length === page.total },
+      )
     } catch (err) {
       setError(err.message)
     }
@@ -97,6 +104,9 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
     setNote(null)
     try {
       await undoRegistration(event.event_id, row.user_id)
+      // The scanner refuses a badge it has locally marked as registered, so
+      // the mark has to go with the registration or they cannot be re-added.
+      await unmarkRegistered(event.event_id, [row.user_id])
       setNote(`Removed ${row.name}.`)
       await load()
       onChanged?.()
@@ -116,6 +126,7 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
     setNote(null)
     try {
       const res = await removeRegistrations(event.event_id, ids)
+      await unmarkRegistered(event.event_id, ids)
       setNote(`Removed ${res.removed} of ${res.requested}.`)
       setSelected(new Set())
       await load()
@@ -233,6 +244,7 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
       ) : (
         <>
           <RegistrationsTable
+            showTeam={event.event_type === 'team'}
             rows={rows}
             selected={selected}
             onToggle={toggle}

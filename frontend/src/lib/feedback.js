@@ -36,7 +36,13 @@ function buzz(pattern) {
 }
 
 export function signal(status) {
-  if (status === 'registered') {
+  if (status === 'team_added') {
+    // A short high blip: one more member in, team not yet complete.
+    tone(1046, 70)
+    buzz(30)
+    return
+  }
+  if (status === 'registered' || status === 'team_done') {
     tone(880, 120)
     buzz(60)
   } else if (status === 'already_registered') {

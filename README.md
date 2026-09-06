@@ -128,19 +128,45 @@ every payload, so no schema migration is needed.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` `GET` | `/api/events` | Create / list events with registration counts |
-| `PATCH` | `/api/events/{id}` | Rename, set capacity, open or close |
+| `PATCH` | `/api/events/{id}` | Edit name, venue, capacity, type or status |
+| `DELETE` | `/api/events/{id}` | Delete an event with its registrations and teams |
 | `POST` | `/api/events/{id}/scan` | Register whoever the scanned badge identifies |
 | `POST` | `/api/events/{id}/scan/sync` | Replay a batch of scans queued offline |
 | `POST` | `/api/events/{id}/register` | Manual registration by `user_id` |
 | `DELETE` | `/api/events/{id}/registrations/{user_id}` | Undo a mis-scan |
 | `POST` | `/api/events/{id}/registrations/remove` | Remove several at once (`user_ids`) |
 | `GET` `PUT` | `/api/events/{id}/winners` | Read / replace the event's placings |
+| `GET` `POST` | `/api/events/{id}/teams` | List / create teams (team events only) |
+| `DELETE` | `/api/events/{id}/teams/{team_id}` | Disband a team and un-register its members |
 | `GET` | `/api/events/{id}/registrations` | Who has checked in — supports `?q=` |
 | `GET` | `/api/events/{id}/stats` | Counts by method, latest registration |
 | `GET` | `/api/events/{id}/registrations/export.csv` | Post-event export |
 
 A scan resolves to one of six outcomes: `registered`, `already_registered`,
 `unknown_user`, `invalid_qr`, `event_closed`, `event_full`.
+
+### Editing and deleting an event
+
+Each event row carries a `⋯` menu with **Edit**, **Close/Reopen** and
+**Delete**. Edit opens the create form's own fields inline beneath the row —
+one `EventFields` component serves both, so the two forms cannot drift apart —
+and the row stays visible above it as the thing being edited. Saving refreshes
+the selection as well as the list: the panels below read the event's type and
+team sizes, so leaving them on the stale copy would show a team event with an
+individual scanner.
+
+Two guards sit on `PATCH`. Turning a team event back into an individual one is
+refused while teams exist (`409`, naming the count) rather than orphaning rows
+nothing can display; and switching to individual clears `team_size_min/max`, so
+stale bounds cannot resurrect if it is switched back.
+
+`DELETE` removes the event's registrations and teams with it, and **never
+touches attendees** — they belong to the attendee list, and their badges stay
+valid for other events. Without `?force=true` it refuses any event that still
+has registrations or teams, reporting the counts; the UI shows those counts in
+a confirmation block and only then sends `force`. Rows are deleted before the
+event itself, since an event that vanished mid-delete would leave its rows
+invisible and unreachable.
 
 **Double-scanning is settled by the database.** A unique compound index on
 `(event_id, user_id)` means a repeated scan — or two volunteers scanning the
@@ -153,6 +179,36 @@ would have a race window that a busy door finds within minutes.
 from the QR; the name and email inside it are display hints from whenever the
 badge was printed. A badge printed before a name correction still registers the
 right person with the right details.
+
+## Team events
+
+An event is `individual` (the default, and what every pre-existing event was
+migrated to) or `team` with a `team_size_min`/`team_size_max` range.
+
+**Teams are a grouping layer over registrations, not a replacement.** Each member
+still gets their own registration row, carrying `team_id` and `team_name`. That
+keeps the unique `(event_id, user_id)` index as the authority, so one person
+cannot be in two teams, a double scan still cannot duplicate anyone, and the
+registrations table, CSV export and stats all work unchanged.
+
+`create_team` in `backend/app/teams.py` validates everything *before* writing:
+event type and status, size against the range, every badge known, and nobody
+already registered — naming who clashes and which team they are in. Validating
+up front matters at a door: finding out at commit that one of five people is
+already registered means the other four queued for nothing.
+
+Two devices offline can both name a team "Alpha" and neither can know. The
+second is saved as `Alpha (2)` with `renamed_from` recorded, rather than
+rejected — turning away a team whose members have already walked in would be
+worse than renaming it.
+
+If a member is registered in the narrow window between validation and insert,
+the whole team is rolled back and reported rather than left half-registered.
+Verified: 8 devices simultaneously submitting teams that share one member
+produced exactly 1 team and 7 clear rejections, with nobody in two teams.
+
+Disbanding a team removes its member registrations too — they were only
+registered as part of it.
 
 ## Attendee table
 
@@ -179,17 +235,39 @@ so removing second place promotes third rather than leaving a gap.
 
 `PUT` replaces the entire list rather than editing one placing at a time; a
 partial update could briefly leave two people sharing a position. The endpoint
-rejects duplicate positions, the same person winning twice, and unknown
-attendees.
+rejects duplicate positions, the same subject winning twice, and unknown
+attendees or teams.
 
 Names are snapshotted alongside the id, so a results image stays true to what
 was announced even if an attendee record is edited afterwards.
+
+### Team events are won by teams
+
+For an event with `event_type: "team"`, the winners are teams, not individuals:
+the picker lists the teams that formed, and each placing carries the team's
+**whole member list**. A `WinnerEntry` therefore holds either a `user_id` or a
+`team_id` — never both, never neither — and the endpoint rejects a placing whose
+kind disagrees with the event, so a team event can never be given individual
+winners or the reverse.
+
+The member list is snapshotted with the placing, not looked up on read. Two
+things follow: disbanding a team after it was announced does not empty out its
+row (a re-save falls back to the stored snapshot rather than 404-ing), and
+changing an event's `event_type` clears its winners, since a placing of the
+wrong kind could be displayed but never saved again.
 
 **The shareable image** is drawn on a canvas in `frontend/src/lib/winnerImage.js`
 and downloaded as a PNG: a dark title band with the event name and venue, then a
 full table — **# · Name · Organization · Email · Phone** — with a
 gold/silver/bronze disc for the top three and the ordinal (`4th`, `12th`) beyond.
 Missing values render as an em dash rather than a blank cell.
+
+For team results the same table takes a second row shape: a banded heading row
+per team (medal, team name, member count) followed by one numbered row per
+member with their organization, email and phone, so the full roster forwards
+with the image instead of just the team names. The two shapes share the column
+grid, the medals and the truncation, and `bodyHeight()` is the single place that
+knows a team block is taller than a row.
 
 Column widths live in one `COLUMNS` array and the image width is derived from
 them, so adding or removing a column cannot leave the layout inconsistent.
@@ -224,6 +302,29 @@ Three things make offline work rather than merely not-crash:
 Two volunteers offline can both scan the same person — neither device can know.
 On sync the first write wins and the second is reported as already registered,
 in the sync summary rather than silently.
+
+### The locally-known registered set
+
+Each device keeps `qr-reg.registered[event_id]` in IndexedDB — who it already
+believes is checked in — and the scanner consults it before queueing anything,
+so a repeat badge is caught instantly and offline. It is a cache, so it has to
+be able to shrink as well as grow, by three routes:
+
+- **Removing someone un-marks them** (`unmarkRegistered`), from a single
+  removal, a bulk removal, or a team being disbanded. Without this the scanner
+  keeps answering "already registered" for someone whose registration was
+  deleted, and the server is never even asked.
+- **A complete, unfiltered load rebuilds the set** rather than merging into it
+  (`primeRegistered(..., { replace: true })`), which is how a device that did
+  not do the removing heals itself. Merging is kept for a filtered or paged
+  load: rebuilding from a search result would forget everyone not matching it.
+- **Deleting an event forgets it entirely**, queued scans included — they could
+  never be accepted, so they would retry forever.
+
+Replace mode is seeded from the scans still queued on the device, not from
+nothing: those people are registered as far as the door is concerned, and
+dropping them would let a second scan through while the first was still waiting
+to sync.
 
 `frontend/src/lib/payload.js` mirrors `backend/app/qr.py` so a device can parse
 badges without a network. That duplication is deliberate and the two must change

@@ -6,6 +6,7 @@ export default function RegistrationsTable({
   onToggleAll,
   onRemove,
   offset = 0,
+  showTeam = false,
 }) {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.user_id))
 
@@ -27,6 +28,7 @@ export default function RegistrationsTable({
             <th>Name</th>
             <th>Email</th>
             <th>Organization</th>
+            {showTeam && <th>Team</th>}
             <th>Registered</th>
             <th>Method</th>
             <th className="col-action" />
@@ -47,6 +49,15 @@ export default function RegistrationsTable({
               <td className="cell-name">{r.name}</td>
               <td className="cell-muted cell-email" title={r.email}>{r.email}</td>
               <td className="cell-muted cell-org" title={r.organization || ''}>{r.organization || '—'}</td>
+              {showTeam && (
+                <td>
+                  {r.team_name ? (
+                    <span className="team-tag">{r.team_name}</span>
+                  ) : (
+                    <span className="cell-muted">—</span>
+                  )}
+                </td>
+              )}
               <td className="cell-muted" title={new Date(r.registered_at).toLocaleString()}>
                 {new Date(r.registered_at).toLocaleTimeString([], {
                   hour: '2-digit',

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { listRegistrations, listWinners, setWinners } from '../api'
+import { listRegistrations, listTeams, listWinners, setWinners } from '../api'
 import { downloadWinnersImage, ordinal, renderWinnersImage } from '../lib/winnerImage'
+
+/** A placing is keyed by whichever subject it awards: a team or a person. */
+const keyOf = (w) => w.team_id ?? w.user_id
 
 export default function WinnersPanel({ event, refreshKey }) {
   const [winners, setLocal] = useState([])
@@ -12,21 +15,27 @@ export default function WinnersPanel({ event, refreshKey }) {
   const [busy, setBusy] = useState(false)
   const previewRef = useRef(null)
 
+  const isTeamEvent = event?.event_type === 'team'
+
   const load = useCallback(async () => {
     if (!event) return
     try {
-      const [w, regs] = await Promise.all([
+      // Team events are won by teams, so the pool to choose from is the teams
+      // that formed, not the individuals who make them up.
+      const [w, pool] = await Promise.all([
         listWinners(event.event_id),
-        listRegistrations(event.event_id, { limit: 500 }),
+        isTeamEvent
+          ? listTeams(event.event_id)
+          : listRegistrations(event.event_id, { limit: 500 }).then((r) => r.items),
       ])
       setLocal(w)
       setSaved(w)
-      setCandidates(regs.items)
+      setCandidates(pool)
       setError(null)
     } catch (err) {
       setError(err.message)
     }
-  }, [event])
+  }, [event, isTeamEvent])
 
   useEffect(() => {
     load()
@@ -52,24 +61,33 @@ export default function WinnersPanel({ event, refreshKey }) {
     host.appendChild(canvas)
   }, [event, winners])
 
-  const chosen = new Set(winners.map((w) => w.user_id))
-  const available = candidates.filter((c) => !chosen.has(c.user_id))
-  const dirty = JSON.stringify(winners.map((w) => [w.position, w.user_id])) !==
-    JSON.stringify(saved.map((w) => [w.position, w.user_id]))
+  const chosen = new Set(winners.map(keyOf))
+  const available = candidates.filter((c) => !chosen.has(isTeamEvent ? c.team_id : c.user_id))
+  const dirty = JSON.stringify(winners.map((w) => [w.position, keyOf(w)])) !==
+    JSON.stringify(saved.map((w) => [w.position, keyOf(w)]))
 
   function add() {
-    const person = available.find((c) => c.user_id === picked)
-    if (!person) return
+    const pick = available.find((c) => (isTeamEvent ? c.team_id : c.user_id) === picked)
+    if (!pick) return
     setLocal((prev) => [
       ...prev,
-      {
-        position: prev.length + 1,
-        user_id: person.user_id,
-        name: person.name,
-        email: person.email,
-        phone: person.phone,
-        organization: person.organization,
-      },
+      isTeamEvent
+        ? {
+            position: prev.length + 1,
+            kind: 'team',
+            team_id: pick.team_id,
+            name: pick.name,
+            members: pick.members ?? [],
+          }
+        : {
+            position: prev.length + 1,
+            kind: 'user',
+            user_id: pick.user_id,
+            name: pick.name,
+            email: pick.email,
+            phone: pick.phone,
+            organization: pick.organization,
+          },
     ])
     setPicked('')
     setNote(null)
@@ -78,8 +96,8 @@ export default function WinnersPanel({ event, refreshKey }) {
   /** Positions are always 1..n, so removing or moving never leaves a gap. */
   const renumber = (list) => list.map((w, i) => ({ ...w, position: i + 1 }))
 
-  function remove(userId) {
-    setLocal((prev) => renumber(prev.filter((w) => w.user_id !== userId)))
+  function remove(key) {
+    setLocal((prev) => renumber(prev.filter((w) => keyOf(w) !== key)))
     setNote(null)
   }
 
@@ -100,11 +118,16 @@ export default function WinnersPanel({ event, refreshKey }) {
     try {
       const result = await setWinners(
         event.event_id,
-        winners.map((w) => ({ position: w.position, user_id: w.user_id })),
+        winners.map((w) =>
+          isTeamEvent
+            ? { position: w.position, team_id: w.team_id }
+            : { position: w.position, user_id: w.user_id },
+        ),
       )
       setLocal(result)
       setSaved(result)
-      setNote(result.length ? `Saved ${result.length} winners.` : 'Winners cleared.')
+      const label = isTeamEvent ? 'winning teams' : 'winners'
+      setNote(result.length ? `Saved ${result.length} ${label}.` : 'Winners cleared.')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -124,10 +147,20 @@ export default function WinnersPanel({ event, refreshKey }) {
 
   if (!event) return null
 
+  const emptyOption = isTeamEvent
+    ? available.length
+      ? `Select the ${ordinal(winners.length + 1)} place team…`
+      : candidates.length
+        ? 'No teams left to add'
+        : 'No teams have registered yet'
+    : available.length
+      ? `Select ${ordinal(winners.length + 1)} place…`
+      : 'No one left to add'
+
   return (
     <div className="card">
       <div className="list-header">
-        <h2>Winners</h2>
+        <h2>{isTeamEvent ? 'Winning teams' : 'Winners'}</h2>
         {winners.length > 0 && (
           <button className="secondary small" onClick={download}>
             Download image
@@ -140,34 +173,62 @@ export default function WinnersPanel({ event, refreshKey }) {
 
       <div className="winner-add">
         <select value={picked} onChange={(e) => setPicked(e.target.value)}>
-          <option value="">
-            {available.length ? `Select ${ordinal(winners.length + 1)} place…` : 'No one left to add'}
-          </option>
-          {available.map((c) => (
-            <option key={c.user_id} value={c.user_id}>
-              {c.name}
-              {c.organization ? ` — ${c.organization}` : ''}
-            </option>
-          ))}
+          <option value="">{emptyOption}</option>
+          {available.map((c) =>
+            isTeamEvent ? (
+              <option key={c.team_id} value={c.team_id}>
+                {c.name} — {c.size} {c.size === 1 ? 'member' : 'members'}
+              </option>
+            ) : (
+              <option key={c.user_id} value={c.user_id}>
+                {c.name}
+                {c.organization ? ` — ${c.organization}` : ''}
+              </option>
+            ),
+          )}
         </select>
         <button onClick={add} disabled={!picked}>
           Add as {ordinal(winners.length + 1)}
         </button>
       </div>
-      <p className="hint">Chosen from attendees registered for this event.</p>
+      <p className="hint">
+        {isTeamEvent
+          ? 'Chosen from the teams registered for this event. Every member appears on the results image.'
+          : 'Chosen from attendees registered for this event.'}
+      </p>
 
       {winners.length === 0 ? (
         <p className="muted">No winners selected yet.</p>
       ) : (
         <ol className="winner-list">
           {winners.map((w, i) => (
-            <li key={w.user_id}>
+            <li key={keyOf(w)} className={w.kind === 'team' ? 'winner-team' : undefined}>
               <span className={`place place-${w.position <= 3 ? w.position : 'n'}`}>
                 {ordinal(w.position)}
               </span>
               <span className="winner-name">
                 {w.name}
-                {w.organization && <span className="user-meta"> · {w.organization}</span>}
+                {w.kind === 'team' ? (
+                  <span className="user-meta">
+                    {' '}
+                    · {w.members?.length ?? 0}{' '}
+                    {(w.members?.length ?? 0) === 1 ? 'member' : 'members'}
+                  </span>
+                ) : (
+                  w.organization && <span className="user-meta"> · {w.organization}</span>
+                )}
+                {w.kind === 'team' && w.members?.length > 0 && (
+                  <ol className="winner-members">
+                    {w.members.map((m) => (
+                      <li key={m.user_id}>
+                        {m.name}
+                        {m.organization && <span className="user-meta"> · {m.organization}</span>}
+                        <span className="user-meta"> · {m.email}</span>
+                        {m.phone && <span className="user-meta"> · {m.phone}</span>}
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </span>
               <span className="winner-actions">
                 <button className="link-button" onClick={() => move(i, -1)} disabled={i === 0}>
@@ -180,7 +241,7 @@ export default function WinnersPanel({ event, refreshKey }) {
                 >
                   ↓
                 </button>
-                <button className="remove-btn" onClick={() => remove(w.user_id)}>
+                <button className="remove-btn" onClick={() => remove(keyOf(w))}>
                   Remove
                 </button>
               </span>

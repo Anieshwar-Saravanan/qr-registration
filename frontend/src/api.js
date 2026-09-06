@@ -39,7 +39,10 @@ async function request(path, options) {
     } catch {
       /* response had no JSON body; keep the generic message */
     }
-    throw new Error(detail)
+    const error = new Error(detail)
+    // Callers occasionally need to tell a refusal (409) from a real failure.
+    error.status = res.status
+    throw error
   }
   return res.json()
 }
@@ -103,6 +106,12 @@ export const updateEvent = (eventId, changes) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(changes),
   })
+
+/** Deletes an event with its registrations and teams. The backend refuses
+ *  without `force` once anything is attached, so the caller must have
+ *  confirmed. Attendees are never deleted. */
+export const deleteEvent = (eventId, { force = false } = {}) =>
+  request(`/api/events/${eventId}?force=${force}`, { method: 'DELETE' })
 
 export const scan = (eventId, body) =>
   request(`/api/events/${eventId}/scan`, {
@@ -201,3 +210,27 @@ export const setWinners = (eventId, winners) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ winners }),
   })
+
+// --- teams ---
+
+export const listTeams = (eventId) => request(`/api/events/${eventId}/teams`)
+
+export const createTeam = (eventId, body) =>
+  request(`/api/events/${eventId}/teams`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+export async function disbandTeam(eventId, teamId) {
+  const res = await fetch(apiUrl(`/api/events/${eventId}/teams/${teamId}`), { method: 'DELETE' })
+  if (!res.ok && res.status !== 204) {
+    let detail = `Could not disband the team (${res.status})`
+    try {
+      detail = (await res.json()).detail ?? detail
+    } catch {
+      /* no JSON body */
+    }
+    throw new Error(detail)
+  }
+}

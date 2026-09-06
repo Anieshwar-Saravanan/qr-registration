@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Html5Qrcode } from 'html5-qrcode'
-import { syncScans } from '../api'
+import { createTeam, syncScans } from '../api'
 import { getDeviceId } from '../lib/device'
 import { signal } from '../lib/feedback'
 import { parsePayload } from '../lib/payload'
@@ -16,6 +16,10 @@ const SAME_BADGE_COOLDOWN_MS = 4000
 // arriving later from the server never word the same thing differently.
 const STATUS_TEXT = {
   registered: { title: 'Registered', icon: '✓' },
+  team_added: { title: 'Added to team', icon: '+' },
+  team_done: { title: 'Team registered', icon: '✓' },
+  team_duplicate: { title: 'Already in this team', icon: '!' },
+  no_team: { title: 'Start a team first', icon: '!' },
   already_registered: { title: 'Already registered', icon: '!' },
   unknown_user: { title: 'Not on the attendee list', icon: '✕' },
   invalid_qr: { title: 'Not a valid badge', icon: '✕' },
@@ -35,6 +39,14 @@ export default function ScannerPanel({ event, onRegistered }) {
   const [error, setError] = useState(null)
   const [syncNote, setSyncNote] = useState(null)
   const [corrections, setCorrections] = useState([])
+
+  // --- team mode ---
+  const isTeamEvent = event?.event_type === 'team'
+  const [teamName, setTeamName] = useState('')
+  const [collecting, setCollecting] = useState(false)
+  const [buffer, setBuffer] = useState([])
+  const [committing, setCommitting] = useState(false)
+  const [teamNote, setTeamNote] = useState(null)
 
   // Best local estimate of the event's headcount: the server's number from
   // when the event was loaded, or what this device has registered since -
@@ -139,6 +151,58 @@ export default function ScannerPanel({ event, onRegistered }) {
     signal(status)
   }, [])
 
+  const commitTeam = useCallback(
+    async (members) => {
+      const list = members ?? buffer
+      if (list.length === 0) return
+      setCommitting(true)
+      setTeamNote(null)
+      try {
+        const team = await createTeam(event.event_id, {
+          name: teamName.trim(),
+          member_ids: list.map((m) => m.user_id),
+          device_id: getDeviceId(),
+        })
+        // Mark members registered locally so a re-scan is caught instantly.
+        for (const m of list) await markRegistered(event.event_id, m.user_id)
+        setRegistered((prev) => {
+          const next = new Set(prev)
+          list.forEach((m) => next.add(m.user_id))
+          return next
+        })
+        setBuffer([])
+        setCollecting(false)
+        setTeamName('')
+        show('team_done', { name: team.name, detail: `${team.size} members registered.` })
+        setTeamNote(
+          team.renamed_from
+            ? `Saved as “${team.name}” — “${team.renamed_from}” was already taken.`
+            : `${team.name} registered with ${team.size} members.`,
+        )
+        onRegistered?.()
+      } catch (err) {
+        // The buffer is deliberately kept so the team can be retried without
+        // asking everyone to scan again.
+        setTeamNote(`Could not save the team: ${err.message}`)
+        signal('invalid_qr')
+      } finally {
+        setCommitting(false)
+      }
+    },
+    [buffer, event, teamName, show, onRegistered],
+  )
+
+  function cancelTeam() {
+    setBuffer([])
+    setCollecting(false)
+    setTeamNote(null)
+    setResult(null)
+  }
+
+  function removeFromBuffer(userId) {
+    setBuffer((prev) => prev.filter((m) => m.user_id !== userId))
+  }
+
   const handleDecoded = useCallback(
     async (text) => {
       const now = Date.now()
@@ -161,6 +225,30 @@ export default function ScannerPanel({ event, onRegistered }) {
       }
 
       const name = known?.name ?? parsed.hints?.name ?? 'Attendee'
+
+      if (isTeamEvent) {
+        if (!collecting) {
+          show('no_team', { name, detail: 'Enter a team name and press Start team.' })
+          return
+        }
+        if (buffer.some((m) => m.user_id === parsed.userId)) {
+          show('team_duplicate', { name, detail: `Already in ${teamName}.` })
+          return
+        }
+        if (registered.has(parsed.userId)) {
+          show('already_registered', { name, detail: 'Already registered for this event.' })
+          return
+        }
+        const next = [...buffer, { user_id: parsed.userId, name, organization: known?.organization }]
+        setBuffer(next)
+        show('team_added', {
+          name,
+          detail: `${teamName} · ${next.length} of ${event.team_size_min}–${event.team_size_max}`,
+        })
+        // A full team commits without waiting to be told.
+        if (next.length >= event.team_size_max) commitTeam(next)
+        return
+      }
 
       // Checked here as well as on the server: queueing a scan the event will
       // certainly reject would show a green banner to someone who is not
@@ -199,7 +287,8 @@ export default function ScannerPanel({ event, onRegistered }) {
 
       sync({ quiet: true })
     },
-    [event, roster, registered, knownCount, refreshLocal, sync, show],
+    [event, roster, registered, knownCount, refreshLocal, sync, show,
+     isTeamEvent, collecting, buffer, teamName, commitTeam],
   )
 
   // A banner left on screen from an earlier scan could be read as the verdict
@@ -297,6 +386,82 @@ export default function ScannerPanel({ event, onRegistered }) {
       )}
 
       {error && <p className="error">{error}</p>}
+
+      {isTeamEvent && (
+        <div className="team-mode">
+          {!collecting ? (
+            <>
+              <label className="team-name-label">
+                Team name
+                <input
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  placeholder="e.g. Code Warriors"
+                  maxLength={80}
+                />
+              </label>
+              <button
+                onClick={() => {
+                  setTeamNote(null)
+                  setResult(null)
+                  setCollecting(true)
+                }}
+                disabled={!teamName.trim()}
+              >
+                Start team
+              </button>
+              <p className="hint">
+                Then scan {event.team_size_min}–{event.team_size_max} badges. The team saves
+                automatically at {event.team_size_max}.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="team-progress">
+                <strong>{teamName}</strong>
+                <span className="team-size">
+                  {buffer.length} of {event.team_size_min}–{event.team_size_max}
+                </span>
+              </div>
+
+              {buffer.length === 0 ? (
+                <p className="hint">Scan the first member’s badge.</p>
+              ) : (
+                <ol className="buffer-list">
+                  {buffer.map((m) => (
+                    <li key={m.user_id}>
+                      <span>
+                        {m.name}
+                        {m.organization && <span className="user-meta"> · {m.organization}</span>}
+                      </span>
+                      <button className="link-button" onClick={() => removeFromBuffer(m.user_id)}>
+                        remove
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+
+              <div className="button-row">
+                <button
+                  onClick={() => commitTeam()}
+                  disabled={committing || buffer.length < event.team_size_min}
+                >
+                  {committing
+                    ? 'Saving…'
+                    : buffer.length < event.team_size_min
+                      ? `Need ${event.team_size_min - buffer.length} more`
+                      : `Finish team (${buffer.length})`}
+                </button>
+                <button className="secondary" onClick={cancelTeam} disabled={committing}>
+                  Cancel team
+                </button>
+              </div>
+            </>
+          )}
+          {teamNote && <p className="hint team-note">{teamNote}</p>}
+        </div>
+      )}
 
       <div id={READER_ID} className={scanning ? 'reader active' : 'reader'} />
 

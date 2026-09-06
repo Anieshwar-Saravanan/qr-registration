@@ -56,3 +56,10 @@ export async function drain(scanIds) {
 export async function clear() {
   await writeAll([])
 }
+
+/** Drop an event's queued scans, for an event that no longer exists. They
+ *  could never sync, so they would retry forever. */
+export async function clearEvent(eventId) {
+  const items = await readAll()
+  await writeAll(items.filter((i) => i.event_id !== eventId))
+}

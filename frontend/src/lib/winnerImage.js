@@ -2,12 +2,17 @@
  *
  * Drawn on a canvas rather than generated server-side: the browser always has
  * usable fonts, whereas a server would need one bundled for its Linux image.
+ *
+ * Two shapes of results are drawn from the same table: individual placings,
+ * one row each, and team placings, where a team heading row is followed by a
+ * row per member so the full roster travels with the image.
  */
 
 const PAD = 30
 const HEADER_H = 128
 const THEAD_H = 38
 const ROW_H = 50
+const TEAM_ROW_H = 46
 const FOOTER_H = 46
 
 // 3x, so the image stays sharp when opened full-screen on a phone and when the
@@ -20,7 +25,7 @@ const COLUMNS = [
   { key: 'rank', label: '#', width: 58, align: 'center' },
   { key: 'name', label: 'Name', width: 210, bold: true },
   { key: 'organization', label: 'Organization', width: 175 },
-  { key: 'email', label: 'Email', width: 250 },
+  { key: 'email', label: 'Email', width: 285 },
   { key: 'phone', label: 'Phone', width: 135 },
 ]
 
@@ -35,7 +40,10 @@ const MEDALS = {
 
 const INK = '#0f172a'
 const MUTED = '#5b6675'
+const FAINT = '#98a2b3'
 const LINE = '#e6eaf0'
+const RULE = '#d9e0e8'
+const TEAM_BAND = '#f1f5fa'
 const ORDINALS = ['th', 'st', 'nd', 'rd']
 
 /** 1 -> 1st, 2 -> 2nd, 11 -> 11th, 22 -> 22nd */
@@ -43,6 +51,9 @@ export function ordinal(n) {
   const v = n % 100
   return n + (ORDINALS[(v - 20) % 10] ?? ORDINALS[v] ?? ORDINALS[0])
 }
+
+/** True when this results set is teams rather than individuals. */
+export const isTeamWinners = (winners) => winners.some((w) => w.kind === 'team')
 
 const font = (spec) =>
   `${spec} -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`
@@ -75,8 +86,40 @@ function drawRank(ctx, position, cx, cy) {
   ctx.textAlign = 'left'
 }
 
+function hline(ctx, y, color = LINE) {
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(PAD, y + 0.5)
+  ctx.lineTo(PAD + TABLE_W, y + 0.5)
+  ctx.stroke()
+}
+
+/** Total table-body height, which differs between the two row shapes. */
+function bodyHeight(winners, teamMode) {
+  if (!teamMode) return winners.length * ROW_H
+  return winners.reduce(
+    (sum, w) => sum + TEAM_ROW_H + Math.max(w.members?.length ?? 0, 1) * ROW_H,
+    0,
+  )
+}
+
+/** One person's cells, drawn across the non-rank columns. */
+function drawPersonCells(ctx, person, y, indent = 0) {
+  const mid = y + ROW_H / 2
+  let cx = PAD + COLUMNS[0].width
+  for (const col of COLUMNS.slice(1)) {
+    const pad = 12 + (col.key === 'name' ? indent : 0)
+    ctx.fillStyle = col.bold ? INK : MUTED
+    ctx.font = font(col.bold ? '600 15px' : '400 13.5px')
+    ctx.fillText(truncate(ctx, person[col.key] || '—', col.width - pad - 12), cx + pad, mid)
+    cx += col.width
+  }
+}
+
 export function renderWinnersImage(event, winners) {
-  const height = HEADER_H + THEAD_H + winners.length * ROW_H + FOOTER_H
+  const teamMode = isTeamWinners(winners)
+  const height = HEADER_H + THEAD_H + bodyHeight(winners, teamMode) + FOOTER_H
   const canvas = document.createElement('canvas')
   canvas.width = W * SCALE
   canvas.height = height * SCALE
@@ -96,7 +139,7 @@ export function renderWinnersImage(event, winners) {
   ctx.fillStyle = '#f5b301'
   ctx.font = font('700 12px')
   if ('letterSpacing' in ctx) ctx.letterSpacing = '2.5px'
-  ctx.fillText('WINNERS', PAD, 38)
+  ctx.fillText(teamMode ? 'WINNING TEAMS' : 'WINNERS', PAD, 38)
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
 
   ctx.fillStyle = '#ffffff'
@@ -107,7 +150,7 @@ export function renderWinnersImage(event, winners) {
     .filter(Boolean)
     .join('  ·  ')
   if (meta) {
-    ctx.fillStyle = '#98a2b3'
+    ctx.fillStyle = FAINT
     ctx.font = font('400 13px')
     ctx.fillText(truncate(ctx, meta, W - PAD * 2), PAD, 100)
   }
@@ -122,7 +165,7 @@ export function renderWinnersImage(event, winners) {
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0.8px'
   let x = PAD
   for (const col of COLUMNS) {
-    const label = col.label.toUpperCase()
+    const label = (col.key === 'name' && teamMode ? 'Team / Member' : col.label).toUpperCase()
     if (col.align === 'center') {
       ctx.textAlign = 'center'
       ctx.fillText(label, x + col.width / 2, theadY + THEAD_H / 2)
@@ -133,66 +176,85 @@ export function renderWinnersImage(event, winners) {
     x += col.width
   }
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
-
-  ctx.strokeStyle = '#d9e0e8'
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.moveTo(PAD, theadY + THEAD_H + 0.5)
-  ctx.lineTo(PAD + TABLE_W, theadY + THEAD_H + 0.5)
-  ctx.stroke()
+  hline(ctx, theadY + THEAD_H, RULE)
 
   // --- rows ---------------------------------------------------------------
-  const top = theadY + THEAD_H
+  let y = theadY + THEAD_H
 
-  winners.forEach((w, i) => {
-    const y = top + i * ROW_H
-    const mid = y + ROW_H / 2
+  if (teamMode) {
+    winners.forEach((w, i) => {
+      const members = w.members ?? []
 
-    // Banding aligned to the table body, not the full page width, so nothing
-    // disagrees with the column rules.
-    if (i % 2 === 1) {
-      ctx.fillStyle = '#fafbfc'
-      ctx.fillRect(PAD, y, TABLE_W, ROW_H)
-    }
-    if (i > 0) {
-      ctx.strokeStyle = LINE
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.moveTo(PAD, y + 0.5)
-      ctx.lineTo(PAD + TABLE_W, y + 0.5)
-      ctx.stroke()
-    }
+      // A rule above every block but the first keeps teams visually separate
+      // without boxing each one.
+      if (i > 0) hline(ctx, y, RULE)
 
-    let cx = PAD
-    for (const col of COLUMNS) {
-      if (col.key === 'rank') {
-        drawRank(ctx, w.position, cx + col.width / 2, mid)
-      } else {
-        const value = w[col.key]
-        ctx.fillStyle = col.bold ? INK : MUTED
-        ctx.font = font(col.bold ? '600 15px' : '400 13.5px')
-        ctx.fillText(truncate(ctx, value || '—', col.width - 24), cx + 12, mid)
+      // Team heading: medal, team name, and the size on the right.
+      ctx.fillStyle = TEAM_BAND
+      ctx.fillRect(PAD, y, TABLE_W, TEAM_ROW_H)
+      const headMid = y + TEAM_ROW_H / 2
+      drawRank(ctx, w.position, PAD + COLUMNS[0].width / 2, headMid)
+
+      const countText = `${members.length} ${members.length === 1 ? 'member' : 'members'}`
+      ctx.font = font('400 12px')
+      const countW = ctx.measureText(countText).width
+      ctx.fillStyle = FAINT
+      ctx.fillText(countText, PAD + TABLE_W - 12 - countW, headMid)
+
+      const nameX = PAD + COLUMNS[0].width + 12
+      ctx.fillStyle = INK
+      ctx.font = font('700 17px')
+      ctx.fillText(truncate(ctx, w.name, TABLE_W - COLUMNS[0].width - 36 - countW), nameX, headMid)
+      y += TEAM_ROW_H
+
+      if (members.length === 0) {
+        ctx.fillStyle = FAINT
+        ctx.font = font('400 13.5px')
+        ctx.fillText('No members recorded', nameX, y + ROW_H / 2)
+        y += ROW_H
+        return
       }
-      cx += col.width
-    }
-  })
+
+      members.forEach((m, j) => {
+        if (j > 0) hline(ctx, y)
+        // A small ordinal in the rank column ties each member to its team
+        // block without repeating the medal.
+        ctx.fillStyle = FAINT
+        ctx.font = font('400 12px')
+        ctx.textAlign = 'center'
+        ctx.fillText(String(j + 1), PAD + COLUMNS[0].width / 2, y + ROW_H / 2)
+        ctx.textAlign = 'left'
+        drawPersonCells(ctx, m, y, 6)
+        y += ROW_H
+      })
+    })
+  } else {
+    winners.forEach((w, i) => {
+      // Banding aligned to the table body, not the full page width, so nothing
+      // disagrees with the column rules.
+      if (i % 2 === 1) {
+        ctx.fillStyle = '#fafbfc'
+        ctx.fillRect(PAD, y, TABLE_W, ROW_H)
+      }
+      if (i > 0) hline(ctx, y)
+      drawRank(ctx, w.position, PAD + COLUMNS[0].width / 2, y + ROW_H / 2)
+      drawPersonCells(ctx, w, y)
+      y += ROW_H
+    })
+  }
 
   // --- footer -------------------------------------------------------------
-  const fy = top + winners.length * ROW_H
-  ctx.strokeStyle = '#d9e0e8'
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.moveTo(PAD, fy + 0.5)
-  ctx.lineTo(PAD + TABLE_W, fy + 0.5)
-  ctx.stroke()
+  hline(ctx, y, RULE)
+  const people = teamMode
+    ? winners.reduce((sum, w) => sum + (w.members?.length ?? 0), 0)
+    : winners.length
+  const summary = teamMode
+    ? `${winners.length} ${winners.length === 1 ? 'team' : 'teams'}  ·  ${people} ${people === 1 ? 'member' : 'members'}`
+    : `${winners.length} ${winners.length === 1 ? 'winner' : 'winners'}`
 
-  ctx.fillStyle = '#98a2b3'
+  ctx.fillStyle = FAINT
   ctx.font = font('400 11.5px')
-  ctx.fillText(
-    `${winners.length} ${winners.length === 1 ? 'winner' : 'winners'}  ·  generated ${new Date().toLocaleString()}`,
-    PAD,
-    fy + FOOTER_H / 2,
-  )
+  ctx.fillText(`${summary}  ·  generated ${new Date().toLocaleString()}`, PAD, y + FOOTER_H / 2)
 
   canvas.dataset.designWidth = String(W)
   return canvas
