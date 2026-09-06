@@ -164,6 +164,26 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .list-header h2 { margin: 0; }
 
 .search { margin-bottom: 12px; }
+
+/* The manual-add team picker sits in the same column as the search box, so it
+   borrows the input styling rather than looking like a stray control. */
+select.team-picker {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 9px 11px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+select.team-picker:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.12);
+}
+select.team-picker + .hint { margin-bottom: 12px; }
 .search::-webkit-search-cancel-button { cursor: pointer; }
 
 button.secondary, .button.secondary {

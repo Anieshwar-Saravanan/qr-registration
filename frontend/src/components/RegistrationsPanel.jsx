@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   eventStats,
   listRegistrations,
+  listTeams,
   listUsers,
   manualRegister,
   registrationsCsvUrl,
@@ -27,20 +28,29 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
   const [manualQuery, setManualQuery] = useState('')
   const [candidates, setCandidates] = useState([])
   const [manualNote, setManualNote] = useState(null)
+  const [teams, setTeams] = useState([])
+  const [manualTeam, setManualTeam] = useState('')
   const [roster, setRoster] = useState(null)
   const [rosterBusy, setRosterBusy] = useState(false)
   const [rosterNote, setRosterNote] = useState(null)
 
+  const isTeamEvent = event?.event_type === 'team'
+  const isFull = (t) => event?.team_size_max != null && t.size >= event.team_size_max
+
   const load = useCallback(async () => {
     if (!event) return
     try {
-      const [page, s] = await Promise.all([
+      const [page, s, t] = await Promise.all([
         listRegistrations(event.event_id, { q: query, limit: PAGE_SIZE }),
         eventStats(event.event_id),
+        // Needed to ask which team a manually-added person joins, and to know
+        // which teams are already full.
+        event.event_type === 'team' ? listTeams(event.event_id) : Promise.resolve([]),
       ])
       setRows(page.items)
       setTotal(page.total)
       setStats(s)
+      setTeams(t)
       setError(null)
       // Keep this device aware of who other volunteers have registered - and,
       // when this page IS the whole registration list, of who is no longer
@@ -70,6 +80,14 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
   useEffect(() => {
     setSelected(new Set())
   }, [query, event])
+
+  // A team can fill up or be disbanded while it is selected here; leaving the
+  // stale choice in place would send the add to a team that cannot take it.
+  useEffect(() => {
+    if (manualTeam && !teams.some((t) => t.team_id === manualTeam && !isFull(t))) {
+      setManualTeam('')
+    }
+  }, [teams, manualTeam]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadMore() {
     setBusy(true)
@@ -154,10 +172,19 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
   }, [manualQuery])
 
   async function handleManual(user) {
+    if (isTeamEvent && !manualTeam) {
+      setManualNote({ status: 'error', message: 'Choose which team they are joining first.' })
+      return
+    }
     try {
       // The endpoint answers 200 for refusals too - already registered, event
       // closed, event full - so the status has to be read.
-      const res = await manualRegister(event.event_id, user.user_id, getDeviceId())
+      const res = await manualRegister(
+        event.event_id,
+        user.user_id,
+        getDeviceId(),
+        isTeamEvent ? manualTeam : null,
+      )
       setManualNote({ status: res.status, message: res.message })
       if (res.status === 'registered') {
         setManualQuery('')
@@ -277,11 +304,40 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
       </div>
 
       <h3 className="section-label">Register manually</h3>
+      {isTeamEvent && (
+        <>
+          <select
+            className="search team-picker"
+            value={manualTeam}
+            onChange={(e) => {
+              setManualTeam(e.target.value)
+              setManualNote(null)
+            }}
+          >
+            <option value="">
+              {teams.length ? 'Which team are they joining?' : 'No teams yet'}
+            </option>
+            {teams.map((t) => (
+              <option key={t.team_id} value={t.team_id} disabled={isFull(t)}>
+                {t.name} — {t.size}
+                {event.team_size_max ? `/${event.team_size_max}` : ''} members
+                {isFull(t) ? ' (full)' : ''}
+              </option>
+            ))}
+          </select>
+          <p className="hint">
+            {teams.length
+              ? 'Everyone on a team event belongs to a team, so pick theirs before adding them.'
+              : 'Form the first team in the Scan tab — a team cannot start with one person.'}
+          </p>
+        </>
+      )}
       <input
         className="search"
         placeholder="Badge won’t scan? Find them by name…"
         value={manualQuery}
         onChange={(e) => setManualQuery(e.target.value)}
+        disabled={isTeamEvent && teams.length === 0}
       />
       {manualNote && (
         <p className={manualNote.status === 'registered' ? 'ok-note' : 'form-error'}>

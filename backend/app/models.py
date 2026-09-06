@@ -187,6 +187,9 @@ class SyncResult(BaseModel):
 class ManualRegister(BaseModel):
     user_id: str = Field(min_length=1, max_length=64)
     device_id: str | None = Field(default=None, max_length=64)
+    # Required for a team event: a manual registration must join a team like
+    # every other registration on that event's roster.
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class RegistrationOut(BaseModel):

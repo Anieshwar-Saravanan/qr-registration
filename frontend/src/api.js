@@ -128,11 +128,13 @@ export const syncScans = (eventId, scans) =>
     body: JSON.stringify({ scans }),
   })
 
-export const manualRegister = (eventId, userId, deviceId) =>
+/** `teamId` is required by the backend for a team event and rejected for an
+ *  individual one - everyone on a team event's roster belongs to a team. */
+export const manualRegister = (eventId, userId, deviceId, teamId = null) =>
   request(`/api/events/${eventId}/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, device_id: deviceId }),
+    body: JSON.stringify({ user_id: userId, device_id: deviceId, team_id: teamId }),
   })
 
 export async function undoRegistration(eventId, userId) {

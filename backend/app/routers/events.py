@@ -33,7 +33,7 @@ from app.models import (
 )
 from app.qr import InvalidPayload, parse_payload
 from app.registration import register_user
-from app.teams import TeamError, create_team
+from app.teams import TeamError, add_team_member, create_team
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -437,10 +437,36 @@ async def sync_scans(event_id: str, payload: SyncRequest) -> SyncResult:
 async def manual_register(event_id: str, payload: ManualRegister) -> ScanResult:
     """Register someone chosen by name - the fallback when a badge will not scan."""
     event = await _find_event_or_404(event_id)
+    is_team_event = event.get("event_type") == "team"
 
     user = await get_db().users.find_one({"user_id": payload.user_id})
     if user is None:
         raise HTTPException(status_code=404, detail="No such attendee.")
+
+    # On a team event everyone belongs to a team. Registering without one used
+    # to succeed silently and leave a person sitting on the roster with no team
+    # beside them, which is neither a valid entry nor easy to spot.
+    if is_team_event and not payload.team_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"“{event['name']}” is a team event — choose a team for this person.",
+        )
+    if payload.team_id and not is_team_event:
+        raise HTTPException(
+            status_code=400, detail=f"“{event['name']}” is not a team event."
+        )
+
+    if is_team_event:
+        try:
+            return await add_team_member(
+                get_db(),
+                event,
+                team_id=payload.team_id,
+                user=user,
+                device_id=payload.device_id,
+            )
+        except TeamError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
     return await register_user(
         get_db(), event, user, method="manual", device_id=payload.device_id

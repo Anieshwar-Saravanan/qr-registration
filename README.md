@@ -132,7 +132,7 @@ every payload, so no schema migration is needed.
 | `DELETE` | `/api/events/{id}` | Delete an event with its registrations and teams |
 | `POST` | `/api/events/{id}/scan` | Register whoever the scanned badge identifies |
 | `POST` | `/api/events/{id}/scan/sync` | Replay a batch of scans queued offline |
-| `POST` | `/api/events/{id}/register` | Manual registration by `user_id` |
+| `POST` | `/api/events/{id}/register` | Manual registration by `user_id` (plus `team_id` on a team event) |
 | `DELETE` | `/api/events/{id}/registrations/{user_id}` | Undo a mis-scan |
 | `POST` | `/api/events/{id}/registrations/remove` | Remove several at once (`user_ids`) |
 | `GET` `PUT` | `/api/events/{id}/winners` | Read / replace the event's placings |
@@ -196,6 +196,25 @@ event type and status, size against the range, every badge known, and nobody
 already registered — naming who clashes and which team they are in. Validating
 up front matters at a door: finding out at commit that one of five people is
 already registered means the other four queued for nothing.
+
+### Adding someone to a team by hand
+
+The manual fallback ("badge won't scan") has to ask which team the person is
+joining. On a team event `POST /register` **refuses a registration with no
+`team_id`**: it used to succeed and leave someone on the roster with no team
+beside them — a row that is neither valid nor easy to spot. A `team_id` sent to
+an individual event is refused in the same way.
+
+`add_team_member` claims the place with a single conditional update —
+`{team_id, size: {$lt: team_size_max}}` with `$push`/`$inc` — so two organisers
+filling the last seat at once cannot both win. Verified: six simultaneous adds
+for one free place produced one registration and five refusals, with the team's
+`size` still matching its member array. If the registration then fails (closed,
+full, or someone registered in between) the claimed place is handed back.
+
+The picker lists each team as `Alpha — 2/3 members`, disables any team already
+at its maximum, and clears itself if the chosen team fills up or is disbanded
+while it is selected.
 
 Two devices offline can both name a team "Alpha" and neither can know. The
 second is saved as `Alpha (2)` with `renamed_from` recorded, rather than

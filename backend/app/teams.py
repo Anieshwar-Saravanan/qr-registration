@@ -8,8 +8,12 @@ replayed from a queue have to produce the same result.
 import uuid
 from datetime import datetime, timezone
 
+from pymongo import ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import BulkWriteError, DuplicateKeyError
+
+from app.models import ScanResult
+from app.registration import register_user
 
 MAX_NAME_ATTEMPTS = 50
 
@@ -160,3 +164,69 @@ async def create_team(
         )
 
     return team_doc
+
+
+async def add_team_member(
+    db: AsyncDatabase,
+    event: dict,
+    *,
+    team_id: str,
+    user: dict,
+    device_id: str | None = None,
+) -> ScanResult:
+    """Add one person to an existing team and register them with it.
+
+    The manual fallback for a team event: a badge that will not scan cannot be
+    allowed to produce a team-less registration on a roster where everyone else
+    has a team.
+    """
+    if event.get("event_type") != "team":
+        raise TeamError(f"“{event['name']}” is not a team event.")
+    if event.get("status") == "closed":
+        raise TeamError(f"“{event['name']}” is closed to new registrations.")
+
+    clash = await db.registrations.find_one(
+        {"event_id": event["event_id"], "user_id": user["user_id"]}
+    )
+    if clash:
+        where = f" (in {clash['team_name']})" if clash.get("team_name") else ""
+        raise TeamError(f"{user['name']} is already registered for this event{where}.", 409)
+
+    member = {
+        "user_id": user["user_id"],
+        "name": user["name"],
+        "email": user["email"],
+        "phone": user.get("phone"),
+        "organization": user.get("organization"),
+    }
+
+    # The size cap is the scarce resource, so it is claimed atomically: two
+    # organisers filling the last place at once cannot both win.
+    query = {"team_id": team_id, "event_id": event["event_id"]}
+    hi = event.get("team_size_max")
+    if hi:
+        query["size"] = {"$lt": hi}
+    team = await db.teams.find_one_and_update(
+        query,
+        {"$push": {"members": member}, "$inc": {"size": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if team is None:
+        existing = await db.teams.find_one({"team_id": team_id, "event_id": event["event_id"]})
+        if existing is None:
+            raise TeamError("No such team for this event.", 404)
+        raise TeamError(
+            f"“{existing['name']}” is already at its maximum of {hi} members.", 409
+        )
+
+    result = await register_user(
+        db, event, user, method="manual", device_id=device_id, team=team
+    )
+    if result.status != "registered":
+        # The place was claimed but not used - closed event, capacity, or a
+        # registration that appeared in between. Hand it back.
+        await db.teams.update_one(
+            {"team_id": team_id},
+            {"$pull": {"members": {"user_id": user["user_id"]}}, "$inc": {"size": -1}},
+        )
+    return result

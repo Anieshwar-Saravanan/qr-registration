@@ -53,8 +53,13 @@ async def register_user(
     device_id: str | None = None,
     scanned_at: datetime | None = None,
     scan_id: str | None = None,
+    team: dict | None = None,
 ) -> ScanResult:
-    """Register `user` for `event`, idempotently."""
+    """Register `user` for `event`, idempotently.
+
+    `team` attaches the registration to a team, so a team event's roster never
+    contains a member with no team beside them.
+    """
     if event.get("status") == "closed":
         return ScanResult(
             status="event_closed",
@@ -97,6 +102,8 @@ async def register_user(
         "method": method,
         "device_id": device_id,
         "scan_id": scan_id,
+        "team_id": team["team_id"] if team else None,
+        "team_name": team["name"] if team else None,
     }
     if skew is not None:
         doc["clock_skew_seconds"] = skew
