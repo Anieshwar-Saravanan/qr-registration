@@ -17,6 +17,7 @@ from app.models import (
     EventUpdate,
     ManualRegister,
     RegistrationPage,
+    RemoveRegistrations,
     ScanRequest,
     ScanResult,
     SyncRequest,
@@ -177,6 +178,20 @@ async def undo_registration(event_id: str, user_id: str) -> Response:
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="That person is not registered.")
     return Response(status_code=204)
+
+
+@router.post("/{event_id}/registrations/remove")
+async def remove_registrations(event_id: str, payload: RemoveRegistrations) -> dict:
+    """Un-register several attendees at once.
+
+    A POST rather than DELETE because the list travels in a body, and one
+    round trip rather than one per person when clearing a batch.
+    """
+    await _find_event_or_404(event_id)
+    result = await get_db().registrations.delete_many(
+        {"event_id": event_id, "user_id": {"$in": payload.user_ids}}
+    )
+    return {"removed": result.deleted_count, "requested": len(payload.user_ids)}
 
 
 # --------------------------------------------------------------------------

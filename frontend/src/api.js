@@ -181,3 +181,11 @@ export async function downloadBadgesFor(userIds, filename = 'attendee-badges.pdf
 
   return Number(res.headers.get('X-Page-Count') ?? 0)
 }
+
+/** Un-register several attendees in one request. */
+export const removeRegistrations = (eventId, userIds) =>
+  request(`/api/events/${eventId}/registrations/remove`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_ids: userIds }),
+  })

@@ -18,7 +18,7 @@ body {
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-.app { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+.app { max-width: 1200px; margin: 0 auto; padding: 32px 24px 64px; }
 
 header h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
 header { margin-bottom: 28px; }
@@ -42,7 +42,7 @@ header { margin-bottom: 28px; }
 .column { display: flex; flex-direction: column; gap: 20px; }
 
 @media (max-width: 800px) {
-  .layout { grid-template-columns: 1fr; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 .card {
@@ -434,3 +434,106 @@ button.secondary:hover, .button.secondary:hover { background: var(--bg); }
 .header-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .badge-cta { margin: 10px 0 0; }
 .badge-cta button { font-size: 13px; padding: 7px 13px; }
+
+/* --- registrations table --- */
+
+/* The wrapper scrolls, never the page body. */
+.table-scroll { overflow-x: auto; margin-top: 10px; }
+
+.reg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.reg-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+.reg-table td {
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.reg-table tbody tr:hover { background: var(--bg); }
+.reg-table tr.row-selected { background: #eff6ff; }
+
+.col-check { width: 30px; }
+.col-num { width: 30px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.col-action { width: 74px; text-align: right; }
+.cell-name { font-weight: 500; }
+.cell-muted { color: var(--muted); }
+
+.method {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+}
+.method-manual { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.device { font-size: 11px; color: var(--muted); margin-left: 6px; }
+
+.remove-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 6px;
+}
+.remove-btn:hover { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+
+button.danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+button.danger:hover { background: #b91c1c; }
+
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e40af;
+}
+
+/* Events tab: compact event list, wide registrations table. */
+.layout-events { grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); }
+@media (max-width: 900px) {
+  /* minmax(0, 1fr), not 1fr: a bare 1fr resolves to minmax(auto, 1fr), which
+     lets the table's intrinsic width push the whole page sideways. */
+  .layout-events { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Long emails and organizations would otherwise push Method and Remove off
+   the visible width, so they truncate with the full value in a tooltip. */
+.reg-table .cell-email,
+.reg-table .cell-org {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reg-table .cell-org { max-width: 105px; }
+.device { display: none; }
+@media (min-width: 1100px) {
+  .device { display: inline; }
+}

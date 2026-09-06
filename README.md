@@ -133,6 +133,7 @@ every payload, so no schema migration is needed.
 | `POST` | `/api/events/{id}/scan/sync` | Replay a batch of scans queued offline |
 | `POST` | `/api/events/{id}/register` | Manual registration by `user_id` |
 | `DELETE` | `/api/events/{id}/registrations/{user_id}` | Undo a mis-scan |
+| `POST` | `/api/events/{id}/registrations/remove` | Remove several at once (`user_ids`) |
 | `GET` | `/api/events/{id}/registrations` | Who has checked in — supports `?q=` |
 | `GET` | `/api/events/{id}/stats` | Counts by method, latest registration |
 | `GET` | `/api/events/{id}/registrations/export.csv` | Post-event export |
@@ -151,6 +152,23 @@ would have a race window that a busy door finds within minutes.
 from the QR; the name and email inside it are display hints from whenever the
 badge was printed. A badge printed before a name correction still registers the
 right person with the right details.
+
+## Attendee table
+
+Each event's registrations are shown as a sortable-width table — number, name,
+email, organization, registration time, and how they were registered (scan or
+manual, with the device id). Long emails and organizations truncate with the
+full value in a tooltip so the Remove column always stays visible.
+
+Removal works two ways: a **Remove** button per row, or checkboxes plus
+**Remove selected** for a batch. Bulk removal is one request rather than one
+per person, and reports honestly (`removed: 1, requested: 2` when an id no
+longer exists).
+
+Removing someone un-registers them from that event only — they stay in the
+attendee list, their QR badge stays valid, and they can be registered again.
+Verified: remove, re-register, and the duplicate guard still fires on a second
+attempt.
 
 ## Offline scanning
 

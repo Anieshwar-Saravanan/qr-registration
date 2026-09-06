@@ -116,7 +116,9 @@ export default function App() {
       )}
 
       {tab === 'events' && (
-        <main className="layout">
+        // Narrower sidebar than the attendees tab: the registrations table has
+        // eight columns and needs the width more than the event list does.
+        <main className="layout layout-events">
           <div className="column">
             <EventsPanel selectedId={event?.event_id} onSelect={setEvent} />
           </div>

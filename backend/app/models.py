@@ -227,3 +227,9 @@ class BadgeRequest(BaseModel):
     """Specific attendees to put on a badge sheet, e.g. the ones just imported."""
 
     user_ids: list[str] = Field(min_length=1, max_length=2000)
+
+
+class RemoveRegistrations(BaseModel):
+    """Attendees to un-register from an event."""
+
+    user_ids: list[str] = Field(min_length=1, max_length=500)
