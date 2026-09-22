@@ -99,12 +99,12 @@ regardless.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/health` | Liveness check |
-| `POST` | `/api/users` | Create attendee (409 on duplicate email) |
+| `POST` | `/api/users` | Create attendee (409 on duplicate roll no) |
 | `GET` | `/api/users` | List/search attendees — `?q=`, `?limit=`, `?offset=` |
 | `GET` | `/api/users/{user_id}` | Fetch one attendee |
 | `GET` | `/api/users/{user_id}/qr` | QR as PNG (`?format=base64` for a data URI) |
 | `POST` | `/api/users/import/preview` | Parse a .csv/.xlsx and report what would happen — **writes nothing** |
-| `POST` | `/api/users/bulk` | Commit many attendees, skipping existing emails |
+| `POST` | `/api/users/bulk` | Commit many attendees, skipping existing roll nos |
 | `GET` | `/api/users/qr/export.zip` | Every QR as a ZIP of PNGs (respects `?q=`) |
 | `GET` | `/api/users/qr/export.pdf` | Printable badge sheet, 16 per A4 (respects `?q=`) |
 | `POST` | `/api/users/qr/export.pdf` | Badge sheet for a specific `user_ids` list |
@@ -115,8 +115,12 @@ regardless.
 Versioned JSON, compact-separated:
 
 ```json
-{"v":1,"type":"user","user_id":"<uuid>","name":"...","email":"...","org":"..."}
+{"v":1,"type":"user","user_id":"<uuid>","name":"...","roll":"...","domain":"..."}
 ```
+
+Only the fields printed on the badge ride along as display hints. The rest stay
+out: every byte is a denser QR and a harder scan, and an offline scanner reads
+the full record from its cached roster instead.
 
 `build_payload()` in `backend/app/qr.py` is the **only** place that decides what
 goes into a QR. Phase 2's switch to an opaque signed token changes that function
@@ -232,9 +236,11 @@ registered as part of it.
 ## Attendee table
 
 Each event's registrations are shown as a sortable-width table — number, name,
-email, organization, registration time, and how they were registered (scan or
-manual, with the device id). Long emails and organizations truncate with the
-full value in a tooltip so the Remove column always stays visible.
+roll no, domain, department, year, registration time, and how they were
+registered (scan or manual, with the device id). Long domains and department
+names truncate with the full value in a tooltip so the Remove column always
+stays visible; the roll number never truncates, since it is what identifies
+the row.
 
 Removal works two ways: a **Remove** button per row, or checkboxes plus
 **Remove selected** for a batch. Bulk removal is one request rather than one
@@ -277,13 +283,13 @@ wrong kind could be displayed but never saved again.
 
 **The shareable image** is drawn on a canvas in `frontend/src/lib/winnerImage.js`
 and downloaded as a PNG: a dark title band with the event name and venue, then a
-full table — **# · Name · Organization · Email · Phone** — with a
+full table — **# · Name · Roll No · Domain · Department · Phone** — with a
 gold/silver/bronze disc for the top three and the ordinal (`4th`, `12th`) beyond.
 Missing values render as an em dash rather than a blank cell.
 
 For team results the same table takes a second row shape: a banded heading row
 per team (medal, team name, member count) followed by one numbered row per
-member with their organization, email and phone, so the full roster forwards
+member with their roll no, domain, department and phone, so the full roster forwards
 with the image instead of just the team names. The two shapes share the column
 grid, the medals and the truncation, and `bodyHeight()` is the single place that
 knows a team block is taller than a row.
@@ -370,7 +376,9 @@ Handled deliberately, because real spreadsheets contain all of it:
 - UTF-8 BOM and cp1252 encodings from Excel-on-Windows exports
 - Phone numbers Excel widened to floats (`9840011223.0`) or scientific notation
 - Hundreds of phantom trailing rows
-- Mixed-case emails, which a case-sensitive unique index would let in twice
+- Mixed-case roll numbers (`21cs001` / `21CS001`), which a case-sensitive unique
+  index would otherwise let in twice
+- Years written as `3`, `3rd`, `III` or `3rd Year`
 - Legacy `.xls`, rejected with an actionable message rather than a parse error
 
 Limits: 5MB, 5000 rows.
@@ -378,8 +386,13 @@ Limits: 5MB, 5000 rows.
 ## Printable badge sheets
 
 `backend/app/pdf.py` lays out **16 badges per A4** as a 4x4 grid with cut
-guides: QR code, name in bold, organization in grey beneath it. Attendees with
-no organization simply omit that line.
+guides: QR code, then **name** in bold, **roll no** beneath it, and **domain**
+in grey below that. One `BADGE_LINES` table drives the block height and every
+baseline, so a line can be added or removed without the layout drifting.
+
+The baseline walks down a full line at a time whether or not that line has a
+value, so someone with no domain gets a badge laid out identically to everyone
+else's on the sheet rather than sitting higher in its cell.
 
 Two ways in:
 
@@ -394,7 +407,7 @@ printed for someone already in the database — a QR whose `user_id` does not
 exist would be rejected at the door. Import first, then print.
 
 Verified by rendering the PDF at 300dpi and decoding: 40 badges produce 3 pages
-and all 40 scan. Long names and organizations are ellipsised to fit the cell.
+and all 40 scan. Long names and domains are ellipsised to fit the cell.
 
 **Limitation:** ReportLab's built-in fonts are Latin-1, so accented names
 ("Zoë Müller") print correctly but non-Latin scripts degrade to `?`. The QR
@@ -403,9 +416,11 @@ means registering a TrueType font with the needed glyphs.
 
 ## Search
 
-`GET /api/users?q=` does a case-insensitive substring match across name, email
-and organization. The query is regex-escaped, so punctuation in a search box
-cannot break the query or pin the server on a pathological pattern.
+`GET /api/users?q=` does a case-insensitive substring match across name, roll
+no, domain, position, department, email and phone. Year is deliberately left
+out: it is a number, and searching "3" would match roll numbers and phone
+numbers too. The query is regex-escaped, so punctuation in a search box cannot
+break the query or pin the server on a pathological pattern.
 
 Being an unanchored regex, it is a collection scan — fine into the low
 thousands. If fuzzy/typo-tolerant matching is ever needed, Atlas Search is
@@ -413,11 +428,36 @@ available on the M0 tier and is the upgrade path.
 
 ## Data model
 
-`users` collection, unique indexes on `email` and `user_id`:
+`users` collection, unique indexes on `roll_no` and `user_id`:
 
 ```
-{ _id, user_id (uuid4), name, email, phone, organization, created_at }
+{ _id, user_id (uuid4), name, roll_no, domain, position,
+  year, department, phone, email, created_at }
 ```
+
+**Name and roll no are the only required fields.** Everything else is optional,
+so a patchy spreadsheet column does not reject otherwise-good rows — a blank
+renders as an em dash rather than blocking the import.
+
+**The roll number is the identity.** It is the unique index, what import
+duplicate-detection keys on, and what a 409 names. It is stored upper-cased
+with internal whitespace collapsed, because the unique index is case-sensitive
+and `21cs001` and `21CS001` are the same person.
+
+Email is an ordinary optional field. It used to be the unique key, so
+`_ensure_indexes` drops the old `email_1` index on startup: an index outlives
+the code that created it, and a stale unique one would keep rejecting a second
+attendee who has no email address.
+
+The snapshot copied onto a registration, a team member and a winning placing is
+defined once as `PersonFields` / `person_snapshot()` in `models.py`, so the
+roster table, the CSV export, the team list and the results image cannot drift
+into disagreeing about which fields a person carries.
+
+**`position` vs `rank`.** An attendee has a `position` — their role in the club
+— and a winner has a placing. Those cannot both be called `position` on a
+winner row, so the placing is `rank` (1 is first place) throughout the winners
+API and UI.
 
 ## Notes
 

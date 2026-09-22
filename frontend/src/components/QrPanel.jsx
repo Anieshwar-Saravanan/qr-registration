@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getQr, qrPngUrl } from '../api'
+import { personMeta } from '../lib/person'
 
 export default function QrPanel({ user }) {
   const [qr, setQr] = useState(null)
@@ -42,7 +43,7 @@ export default function QrPanel({ user }) {
   return (
     <div className="card qr-card">
       <h2>{user.name}</h2>
-      <p className="muted">{user.email}</p>
+      <p className="muted">{personMeta(user) || 'No details recorded'}</p>
 
       {loading && <p className="muted">Generating…</p>}
       {error && <p className="error">{error}</p>}
@@ -51,7 +52,7 @@ export default function QrPanel({ user }) {
         <>
           <img className="qr-image" src={qr.image} alt={`QR code for ${user.name}`} />
 
-          <a className="button" href={qrPngUrl(user.user_id)} download={`qr-${user.name.replace(/\s+/g, '-').toLowerCase()}.png`}>
+          <a className="button" href={qrPngUrl(user.user_id)} download={`qr-${(user.roll_no || user.name).replace(/\s+/g, '-').toLowerCase()}.png`}>
             Download PNG
           </a>
 

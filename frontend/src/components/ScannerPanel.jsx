@@ -6,6 +6,7 @@ import { signal } from '../lib/feedback'
 import { parsePayload } from '../lib/payload'
 import * as queue from '../lib/queue'
 import { getRegisteredSet, getRoster, lookupLocal, markRegistered } from '../lib/roster'
+import { personMeta } from '../lib/person'
 
 const READER_ID = 'qr-reader'
 // The camera decodes several times a second and will happily re-read the same
@@ -239,7 +240,9 @@ export default function ScannerPanel({ event, onRegistered }) {
           show('already_registered', { name, detail: 'Already registered for this event.' })
           return
         }
-        const next = [...buffer, { user_id: parsed.userId, name, organization: known?.organization }]
+        // The roster cache holds the whole record, so a buffered member can
+        // be shown exactly as the roster table would show them.
+        const next = [...buffer, { user_id: parsed.userId, name, ...known }]
         setBuffer(next)
         show('team_added', {
           name,
@@ -432,7 +435,7 @@ export default function ScannerPanel({ event, onRegistered }) {
                     <li key={m.user_id}>
                       <span>
                         {m.name}
-                        {m.organization && <span className="user-meta"> · {m.organization}</span>}
+                        {personMeta(m) && <span className="user-meta"> · {personMeta(m)}</span>}
                       </span>
                       <button className="link-button" onClick={() => removeFromBuffer(m.user_id)}>
                         remove

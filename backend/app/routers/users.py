@@ -43,8 +43,13 @@ def _slugify(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", ascii_name).strip("-").lower() or "attendee"
 
 
+# Every text field worth typing into a search box. Year is left out: it is a
+# number, and searching "3" would match roll numbers and phone numbers too.
+SEARCH_FIELDS = ("name", "roll_no", "domain", "position", "department", "email", "phone")
+
+
 def _search_filter(q: str | None) -> dict:
-    """Case-insensitive substring match across name, email and organization.
+    """Case-insensitive substring match across an attendee's text fields.
 
     re.escape matters: without it a stray '(' in the query raises a regex
     error, and a pathological pattern could pin the server on a scan.
@@ -54,9 +59,7 @@ def _search_filter(q: str | None) -> dict:
     pattern = re.escape(q.strip())
     return {
         "$or": [
-            {"name": {"$regex": pattern, "$options": "i"}},
-            {"email": {"$regex": pattern, "$options": "i"}},
-            {"organization": {"$regex": pattern, "$options": "i"}},
+            {field: {"$regex": pattern, "$options": "i"}} for field in SEARCH_FIELDS
         ]
     }
 
@@ -87,14 +90,19 @@ async def create_user(payload: UserCreate) -> UserOut:
         await get_db().users.insert_one(doc)
     except DuplicateKeyError:
         raise HTTPException(
-            status_code=409, detail=f"A user with email {payload.email} already exists"
+            status_code=409,
+            detail=f"Roll no {payload.roll_no} is already on the attendee list.",
         )
     return to_user_out(doc)
 
 
 @router.get("", response_model=UserPage)
 async def list_users(
-    q: str | None = Query(default=None, max_length=120, description="Search name, email or organization"),
+    q: str | None = Query(
+        default=None,
+        max_length=120,
+        description="Search name, roll no, domain, position, department, email or phone",
+    ),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> UserPage:
@@ -143,7 +151,7 @@ async def preview_import(file: UploadFile = File(...)) -> ImportPreview:
         raise HTTPException(status_code=400, detail=str(e))
 
     existing = {
-        doc["email"] async for doc in get_db().users.find({}, {"email": 1, "_id": 0})
+        doc["roll_no"] async for doc in get_db().users.find({}, {"roll_no": 1, "_id": 0})
     }
 
     try:
@@ -168,7 +176,7 @@ async def preview_import(file: UploadFile = File(...)) -> ImportPreview:
 
 @router.post("/bulk", response_model=BulkResult, status_code=201)
 async def bulk_create(payload: BulkCreate) -> BulkResult:
-    """Insert many users at once, skipping any whose email already exists."""
+    """Insert many users at once, skipping any whose roll no already exists."""
     docs = [_new_user_doc(u) for u in payload.users]
 
     try:
@@ -178,7 +186,7 @@ async def bulk_create(payload: BulkCreate) -> BulkResult:
         return BulkResult(
             inserted=len(result.inserted_ids),
             skipped=0,
-            skipped_emails=[],
+            skipped_roll_nos=[],
             user_ids=[d["user_id"] for d in docs],
         )
     except BulkWriteError as e:
@@ -186,7 +194,7 @@ async def bulk_create(payload: BulkCreate) -> BulkResult:
         if len(dupes) != len(e.details.get("writeErrors", [])):
             raise HTTPException(status_code=500, detail="Bulk insert failed unexpectedly.")
 
-        skipped_emails = [err.get("op", {}).get("email", "unknown") for err in dupes]
+        skipped_roll_nos = [err.get("op", {}).get("roll_no", "unknown") for err in dupes]
         # Everything the server did not reject went in; identify those by
         # position so the badge sheet covers exactly the new arrivals.
         failed_indexes = {err["index"] for err in dupes if "index" in err}
@@ -196,7 +204,7 @@ async def bulk_create(payload: BulkCreate) -> BulkResult:
         return BulkResult(
             inserted=e.details.get("nInserted", 0),
             skipped=len(dupes),
-            skipped_emails=skipped_emails,
+            skipped_roll_nos=skipped_roll_nos,
             user_ids=inserted_ids,
         )
 

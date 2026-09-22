@@ -1,10 +1,11 @@
-﻿Full Name,E-mail Address,Mobile No,Company,Ticket Type
-Meenakshi Iyer,meenakshi.iyer@demoevent.in,9840998877,Ather Energy,General
-Zoë Fernández,zoe.fernandez@demoevent.in,+34 612 345 678,Glovo,Speaker
-Tarun Ghosh,tarun.ghosh@demoevent.in,9831112233,Dunzo,General
+Full Name,Roll Number,Domain,Position,Year of Study,Branch,Mobile No,Mail Id
+Meenakshi Iyer,21CS002,Web Development,Member,4,CSE,9840998877,meenakshi.iyer@demoevent.in
+Zoë Fernández,21EC019,Design,Member,4,ECE,+34 612 345 678,zoe.fernandez@demoevent.in
+Tarun Ghosh,22IT050,Robotics,Member,3,IT,9831112233,tarun.ghosh@demoevent.in
 
-Meenakshi Iyer,MEENAKSHI.IYER@demoevent.in,9840998877,Ather Energy,General
-Aarav Menon,aarav.menon@example.com,9840011223,Zoho,VIP
-Missing At Sign,tarun.ghosh.demoevent.in,9831445566,Dunzo,General
-   ,noname@demoevent.in,9812223344,Unknown,General
-Rhea Kapoor,rhea.kapoor@demoevent.in,,Nykaa,General
+Meenakshi Duplicate,21cs002,Web Development,Member,4,CSE,9840998877,another@demoevent.in
+Missing At Sign,22CS077,Design,Member,3,CSE,9831445566,tarun.ghosh.demoevent.in
+   ,23CS100,Design,Member,2,CSE,9812223344,noname@demoevent.in
+No Roll Number,,Robotics,Member,2,MECH,9812223355,noroll@demoevent.in
+Bad Year Value,23EE140,Robotics,Member,final,EEE,9812223366,badyear@demoevent.in
+Rhea Kapoor,24CS300,App Development,Member,1,CSE,,rhea.kapoor@demoevent.in

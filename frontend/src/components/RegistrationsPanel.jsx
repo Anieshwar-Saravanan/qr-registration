@@ -10,6 +10,7 @@ import {
   undoRegistration,
 } from '../api'
 import { getDeviceId } from '../lib/device'
+import { personMeta } from '../lib/person'
 import { downloadRoster, getRoster, primeRegistered, unmarkRegistered } from '../lib/roster'
 import RegistrationsTable from './RegistrationsTable'
 
@@ -354,8 +355,7 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
               <button className="user-row" onClick={() => handleManual(u)}>
                 <span className="user-name">{u.name}</span>
                 <span className="user-meta">
-                  {u.email}
-                  {u.organization ? ` · ${u.organization}` : ''}
+                  {personMeta(u) || u.email}
                 </span>
               </button>
             </li>

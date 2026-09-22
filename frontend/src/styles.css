@@ -163,6 +163,34 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 }
 .list-header h2 { margin: 0; }
 
+/* Year and Department are both short, so they share a row rather than each
+   taking a full-width line in an eight-field form. */
+.field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  /* Matches the bottom margin a standalone label carries, so the pair sits in
+     the form's rhythm instead of crowding the field beneath it. */
+  margin-bottom: 12px;
+}
+.field-row label { margin: 0; }
+.field-row select {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 9px 11px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.field-row select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.12);
+}
+
 .search { margin-bottom: 12px; }
 
 /* The manual-add team picker sits in the same column as the search box, so it
@@ -611,15 +639,19 @@ button.danger:hover { background: #b91c1c; }
   .layout-events { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Long emails and organizations would otherwise push Method and Remove off
-   the visible width, so they truncate with the full value in a tooltip. */
-.reg-table .cell-email,
-.reg-table .cell-org {
-  max-width: 150px;
+/* Long domains and department names would otherwise push Method and Remove
+   off the visible width, so they truncate with the full value in a tooltip. */
+.reg-table .cell-wrap {
+  max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.reg-table .cell-org { max-width: 105px; }
+/* A roll number is the row's identifier, so it is never truncated and never
+   wraps onto a second line. */
+.reg-table .cell-roll {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .device { display: none; }
 @media (min-width: 1100px) {
   .device { display: inline; }

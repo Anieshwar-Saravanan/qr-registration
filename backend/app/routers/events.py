@@ -26,6 +26,7 @@ from app.models import (
     ScanResult,
     SyncRequest,
     SyncResult,
+    person_snapshot,
     to_event_out,
     to_winner_out,
     to_registration_out,
@@ -254,7 +255,7 @@ async def disband_team(event_id: str, team_id: str) -> Response:
 @router.get("/{event_id}/winners", response_model=list[WinnerOut])
 async def list_winners(event_id: str) -> list[WinnerOut]:
     event = await _find_event_or_404(event_id)
-    return [to_winner_out(w) for w in sorted(event.get("winners", []), key=lambda w: w["position"])]
+    return [to_winner_out(w) for w in sorted(event.get("winners", []), key=lambda w: w["rank"])]
 
 
 @router.put("/{event_id}/winners", response_model=list[WinnerOut])
@@ -267,9 +268,9 @@ async def set_winners(event_id: str, payload: WinnersUpdate) -> list[WinnerOut]:
     event = await _find_event_or_404(event_id)
     is_team_event = event.get("event_type") == "team"
 
-    positions = [w.position for w in payload.winners]
-    if len(set(positions)) != len(positions):
-        raise HTTPException(status_code=400, detail="Two winners cannot share a position.")
+    ranks = [w.rank for w in payload.winners]
+    if len(set(ranks)) != len(ranks):
+        raise HTTPException(status_code=400, detail="Two winners cannot share a place.")
 
     # A placing must match the event: a team event is won by teams, an
     # individual event by people. Mixing them would leave the results image
@@ -309,21 +310,18 @@ async def _user_winner_entries(payload: WinnersUpdate) -> list[dict]:
             status_code=404, detail=f"{len(missing)} of those attendees no longer exist."
         )
 
-    # Names are snapshotted alongside the id, so a results image stays true to
-    # what was announced even if an attendee record is edited afterwards.
+    # Details are snapshotted alongside the id, so a results image stays true
+    # to what was announced even if an attendee record is edited afterwards.
     return sorted(
         (
             {
-                "position": w.position,
+                "rank": w.rank,
                 "user_id": w.user_id,
-                "name": users[w.user_id]["name"],
-                "email": users[w.user_id]["email"],
-                "phone": users[w.user_id].get("phone"),
-                "organization": users[w.user_id].get("organization"),
+                **person_snapshot(users[w.user_id]),
             }
             for w in payload.winners
         ),
-        key=lambda w: w["position"],
+        key=lambda w: w["rank"],
     )
 
 
@@ -358,20 +356,14 @@ async def _team_winner_entries(event: dict, payload: WinnersUpdate) -> list[dict
             "team_id": team_id,
             "name": source["name"],
             "members": [
-                {
-                    "user_id": m["user_id"],
-                    "name": m.get("name", "(unknown)"),
-                    "email": m.get("email", ""),
-                    "phone": m.get("phone"),
-                    "organization": m.get("organization"),
-                }
+                {"user_id": m["user_id"], **person_snapshot(m)}
                 for m in source.get("members", [])
             ],
         }
 
     return sorted(
-        ({"position": w.position, **snapshot(w.team_id)} for w in payload.winners),
-        key=lambda w: w["position"],
+        ({"rank": w.rank, **snapshot(w.team_id)} for w in payload.winners),
+        key=lambda w: w["rank"],
     )
 
 
@@ -507,9 +499,8 @@ def _registration_filter(event_id: str, q: str | None) -> dict:
     if q and q.strip():
         pattern = re.escape(q.strip())
         query["$or"] = [
-            {"user_snapshot.name": {"$regex": pattern, "$options": "i"}},
-            {"user_snapshot.email": {"$regex": pattern, "$options": "i"}},
-            {"user_snapshot.organization": {"$regex": pattern, "$options": "i"}},
+            {f"user_snapshot.{field}": {"$regex": pattern, "$options": "i"}}
+            for field in ("name", "roll_no", "domain", "position", "department", "email", "phone")
         ]
     return query
 
@@ -569,7 +560,20 @@ async def export_registrations(event_id: str, q: str | None = Query(default=None
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(
-        ["Name", "Email", "Phone", "Organization", "Team", "Registered At", "Method", "Device"]
+        [
+            "Name",
+            "Roll No",
+            "Domain",
+            "Position",
+            "Year",
+            "Department",
+            "Phone Number",
+            "Mail Id",
+            "Team",
+            "Registered At",
+            "Method",
+            "Device",
+        ]
     )
 
     count = 0
@@ -581,9 +585,13 @@ async def export_registrations(event_id: str, q: str | None = Query(default=None
         writer.writerow(
             [
                 r.name,
-                r.email,
+                r.roll_no,
+                r.domain or "",
+                r.position or "",
+                r.year or "",
+                r.department or "",
                 r.phone or "",
-                r.organization or "",
+                r.email,
                 r.team_name or "",
                 r.registered_at.isoformat(timespec="seconds"),
                 r.method,

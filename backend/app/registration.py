@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import DuplicateKeyError
 
-from app.models import ScanResult, to_user_out
+from app.models import ScanResult, person_snapshot, to_user_out
 
 # A device claiming to have scanned in the future has a wrong clock. Small
 # amounts are normal phone drift.
@@ -91,12 +91,7 @@ async def register_user(
         "user_id": user["user_id"],
         # Snapshot so the registration records who walked in as they were, and
         # so exports need no join back to the users collection.
-        "user_snapshot": {
-            "name": user["name"],
-            "email": user["email"],
-            "phone": user.get("phone"),
-            "organization": user.get("organization"),
-        },
+        "user_snapshot": person_snapshot(user),
         "registered_at": registered_at,
         "received_at": datetime.now(timezone.utc),
         "method": method,

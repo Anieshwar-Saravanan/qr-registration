@@ -30,12 +30,13 @@ def build_payload(user: dict) -> str:
         "type": "user",
         "user_id": user["user_id"],
         "name": user["name"],
-        "email": user["email"],
+        "roll": user.get("roll_no", ""),
     }
-    if user.get("organization"):
-        payload["org"] = user["organization"]
-    if user.get("phone"):
-        payload["phone"] = user["phone"]
+    # Only the fields printed on the badge ride along as display hints. The
+    # rest stay out: every byte is a denser QR and a harder scan, and the
+    # roster cache already gives an offline scanner the full record.
+    if user.get("domain"):
+        payload["domain"] = user["domain"]
 
     # separators=(",", ":") keeps the payload compact; every byte saved is a
     # less dense QR and an easier scan from a phone at arm's length.

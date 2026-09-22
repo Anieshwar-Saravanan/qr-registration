@@ -1,7 +1,9 @@
-"""Printable badge sheets: 16 QR codes per A4 page, name and organization below each.
+"""Printable badge sheets: 16 QR codes per A4 page, with the details below each.
 
-Laid out as a 4x4 grid with cut guides, so a sheet can be printed and sliced
-into 16 badges.
+Each badge carries the person's name, roll number and domain under the QR, so
+a volunteer can hand the right badge to the right person without scanning it
+first. Laid out as a 4x4 grid with cut guides, so a sheet can be printed and
+sliced into 16 badges.
 """
 
 import io
@@ -24,23 +26,34 @@ CELL_W = (PAGE_W - 2 * MARGIN) / COLS
 CELL_H = (PAGE_H - 2 * MARGIN) / ROWS
 
 QR_SIZE = 38 * mm
-NAME_SIZE = 9.5
-ORG_SIZE = 8
-LINE_GAP = 4 * mm
+LINE_GAP = 3.5 * mm  # between the QR and the first line of text
 
-# QR + gap + both text lines. Used to centre the badge in its cell rather than
+# The three lines printed under every QR, in order. Adding or removing one
+# here is enough: the block height and every baseline are derived from this,
+# so the badge stays centred in its cell either way.
+BADGE_LINES = (
+    # field,     font,                size, grey
+    ("name", "Helvetica-Bold", 9.5, 0.0),
+    ("roll_no", "Helvetica-Bold", 8.5, 0.35),
+    ("domain", "Helvetica", 7.5, 0.5),
+)
+
+# Leading as a multiple of font size. 1.45 keeps three short lines legible
+# without the block drifting into the badge below it.
+LEADING = 1.45
+
+TEXT_BLOCK_H = sum(size * LEADING for _, _, size, _ in BADGE_LINES)
+
+# QR + gap + the text block. Used to centre the badge in its cell rather than
 # letting it sit at the top with dead space beneath.
-CONTENT_H = QR_SIZE + LINE_GAP + NAME_SIZE + ORG_SIZE + 2 * mm
-
-NAME_FONT = "Helvetica-Bold"
-ORG_FONT = "Helvetica"
+CONTENT_H = QR_SIZE + LINE_GAP + TEXT_BLOCK_H
 
 
 def _fit(text: str, font: str, size: float, max_width: float) -> str:
     """Shorten text with an ellipsis until it fits the cell width.
 
-    Long organisation names are common ("Indian Institute of Technology
-    Madras"), and an overflowing badge looks broken rather than full.
+    Long domain names are common ("Artificial Intelligence and Data Science"),
+    and an overflowing badge looks broken rather than full.
     """
     if stringWidth(text, font, size) <= max_width:
         return text
@@ -97,17 +110,19 @@ def _draw_badge(c: canvas.Canvas, user: dict, index_on_page: int) -> None:
     text_width = CELL_W - 6 * mm
     centre = cell_x + CELL_W / 2
 
-    name = _fit(_sanitize(user.get("name") or ""), NAME_FONT, NAME_SIZE, text_width)
-    c.setFont(NAME_FONT, NAME_SIZE)
-    c.setFillColorRGB(0, 0, 0)
-    c.drawCentredString(centre, qr_y - LINE_GAP - NAME_SIZE * 0.35, name)
-
-    org = user.get("organization")
-    if org:
-        org = _fit(_sanitize(org), ORG_FONT, ORG_SIZE, text_width)
-        c.setFont(ORG_FONT, ORG_SIZE)
-        c.setFillColorRGB(0.42, 0.45, 0.5)
-        c.drawCentredString(centre, qr_y - LINE_GAP - NAME_SIZE - ORG_SIZE * 0.55, org)
+    # The baseline walks down the block a full line at a time whether or not
+    # the line has a value, so a person with no domain still gets a badge
+    # laid out identically to everyone else's on the sheet.
+    baseline = qr_y - LINE_GAP
+    for field, font, size, grey in BADGE_LINES:
+        baseline -= size * LEADING
+        value = user.get(field)
+        if value is None or value == "":
+            continue
+        text = _fit(_sanitize(str(value)), font, size, text_width)
+        c.setFont(font, size)
+        c.setFillColorRGB(grey, grey, grey)
+        c.drawCentredString(centre, baseline, text)
 
 
 def build_badge_pdf(users: list[dict], title: str = "Attendee badges") -> bytes:

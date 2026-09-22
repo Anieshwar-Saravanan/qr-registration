@@ -1,26 +1,36 @@
 """Request and response shapes for the users API."""
 
+import re
 from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
+# Colleges run four-year programmes, with five-year integrated courses common
+# enough to allow for. The form offers 1-4; the importer accepts up to 5.
+YEAR_MIN, YEAR_MAX = 1, 5
+
+
 class UserCreate(BaseModel):
+    """One person on the attendee list.
+
+    Only name and roll number are required. Everything else is optional so a
+    patchy spreadsheet column does not reject otherwise-good rows - a blank
+    shows as an em dash rather than blocking the import.
+    """
+
     # Validated in `require_name` rather than with min_length, so a name of
     # only spaces reports "Name is required" instead of Pydantic's
     # "String should have at least 1 character".
     name: str = Field(max_length=120)
-    email: EmailStr
+    roll_no: str = Field(max_length=40)
+    domain: str | None = Field(default=None, max_length=120)
+    position: str | None = Field(default=None, max_length=120)
+    year: int | None = Field(default=None, ge=YEAR_MIN, le=YEAR_MAX)
+    department: str | None = Field(default=None, max_length=120)
     phone: str | None = Field(default=None, max_length=32)
-    organization: str | None = Field(default=None, max_length=120)
-
-    @field_validator("email")
-    @classmethod
-    def normalize_email(cls, v: str) -> str:
-        # Mongo's unique index is case-sensitive, so without this
-        # "A@x.com" and "a@x.com" would both insert as separate people.
-        return v.strip().lower()
+    email: EmailStr | None = None
 
     @field_validator("name")
     @classmethod
@@ -30,7 +40,46 @@ class UserCreate(BaseModel):
             raise ValueError("Name is required.")
         return name
 
-    @field_validator("phone", "organization")
+    @field_validator("roll_no")
+    @classmethod
+    def require_roll_no(cls, v: str) -> str:
+        # Upper-cased and space-collapsed because the unique index is
+        # case-sensitive: without this "21cs001" and "21CS001" would both
+        # insert as separate people.
+        roll = " ".join((v or "").split()).upper()
+        if not roll:
+            raise ValueError("Roll no is required.")
+        return roll
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def blank_email_to_none(cls, v: object) -> object:
+        # Email is optional now, and an empty cell must mean "not given"
+        # rather than failing EmailStr validation on an empty string.
+        if v is None:
+            return None
+        text = str(v).strip().lower()
+        return text or None
+
+    @field_validator("year", mode="before")
+    @classmethod
+    def coerce_year(cls, v: object) -> object:
+        """Accept what a spreadsheet actually contains: 3, "3", "3rd", "III Year"."""
+        if v is None or isinstance(v, int):
+            return v
+        text = str(v).strip()
+        if not text:
+            return None
+        digits = re.search(r"\d+", text)
+        if digits:
+            return int(digits.group())
+        roman = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5}
+        key = text.upper().replace("YEAR", "").strip()
+        if key in roman:
+            return roman[key]
+        raise ValueError(f"Year must be a number from {YEAR_MIN} to {YEAR_MAX}.")
+
+    @field_validator("domain", "position", "department", "phone")
     @classmethod
     def strip_blank_to_none(cls, v: str | None) -> str | None:
         if v is None:
@@ -41,9 +90,13 @@ class UserCreate(BaseModel):
 class UserOut(BaseModel):
     user_id: str
     name: str
-    email: EmailStr
+    roll_no: str
+    domain: str | None = None
+    position: str | None = None
+    year: int | None = None
+    department: str | None = None
     phone: str | None = None
-    organization: str | None = None
+    email: EmailStr | None = None
     created_at: datetime
 
 
@@ -82,7 +135,9 @@ class BulkCreate(BaseModel):
 class BulkResult(BaseModel):
     inserted: int
     skipped: int
-    skipped_emails: list[str]
+    # Roll numbers already on the attendee list, so the operator can see
+    # exactly which rows were left out rather than just a count.
+    skipped_roll_nos: list[str]
     # Ids of the attendees actually created, so a badge sheet can be printed
     # for exactly this import rather than the whole database.
     user_ids: list[str] = []
@@ -192,14 +247,54 @@ class ManualRegister(BaseModel):
     team_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
-class RegistrationOut(BaseModel):
+class PersonFields(BaseModel):
+    """The attendee details copied onto a registration, team member or placing.
+
+    Defined once and inherited so the roster table, the CSV export, the team
+    list and the results image can never disagree about which fields a
+    snapshot carries.
+    """
+
+    name: str
+    roll_no: str = ""
+    domain: str | None = None
+    position: str | None = None
+    year: int | None = None
+    department: str | None = None
+    phone: str | None = None
+    email: str = ""
+
+
+SNAPSHOT_FIELDS = (
+    "name",
+    "roll_no",
+    "domain",
+    "position",
+    "year",
+    "department",
+    "phone",
+    "email",
+)
+
+
+def person_snapshot(user: dict) -> dict:
+    """Freeze a user document into the fields a registration records.
+
+    Snapshotting rather than joining means a registration records who walked
+    in as they were, and an export needs no lookup back to the users
+    collection.
+    """
+    snap = {field: user.get(field) for field in SNAPSHOT_FIELDS}
+    snap["name"] = snap["name"] or "(unknown)"
+    snap["roll_no"] = snap["roll_no"] or ""
+    snap["email"] = snap["email"] or ""
+    return snap
+
+
+class RegistrationOut(PersonFields):
     registration_id: str
     event_id: str
     user_id: str
-    name: str
-    email: str
-    phone: str | None = None
-    organization: str | None = None
     registered_at: datetime
     method: Literal["scan", "manual"]
     device_id: str | None = None
@@ -237,13 +332,10 @@ def to_event_out(doc: dict, registered_count: int = 0, team_count: int = 0) -> E
 def to_registration_out(doc: dict) -> RegistrationOut:
     snap = doc.get("user_snapshot", {})
     return RegistrationOut(
+        **person_snapshot(snap),
         registration_id=doc["registration_id"],
         event_id=doc["event_id"],
         user_id=doc["user_id"],
-        name=snap.get("name", "(unknown)"),
-        email=snap.get("email", ""),
-        phone=snap.get("phone"),
-        organization=snap.get("organization"),
         registered_at=doc["registered_at"],
         method=doc.get("method", "scan"),
         device_id=doc.get("device_id"),
@@ -265,22 +357,21 @@ class RemoveRegistrations(BaseModel):
     user_ids: list[str] = Field(min_length=1, max_length=500)
 
 
-class TeamMemberOut(BaseModel):
+class TeamMemberOut(PersonFields):
     user_id: str
-    name: str
-    email: str
-    phone: str | None = None
-    organization: str | None = None
 
 
 class WinnerEntry(BaseModel):
-    """One placing. Position 1 is first place.
+    """One placing. Rank 1 is first place.
+
+    Called `rank` rather than `position` because an attendee already HAS a
+    position - their role in the club - and a winner row carries both.
 
     A placing is awarded to a person or to a team, never both: which one is
     decided by the event's type, and the router enforces the match.
     """
 
-    position: int = Field(ge=1, le=100)
+    rank: int = Field(ge=1, le=100)
     user_id: str | None = Field(default=None, min_length=1, max_length=64)
     team_id: str | None = Field(default=None, min_length=1, max_length=64)
 
@@ -296,15 +387,12 @@ class WinnersUpdate(BaseModel):
     winners: list[WinnerEntry] = Field(default_factory=list, max_length=50)
 
 
-class WinnerOut(BaseModel):
-    position: int
+class WinnerOut(PersonFields):
+    # `name` is inherited: the person's name, or the team's. `position` is
+    # inherited too and stays the person's role; the placing is `rank`.
+    rank: int
     kind: Literal["user", "team"] = "user"
-    # The winner's display name: the person's name, or the team's.
-    name: str
     user_id: str | None = None
-    email: str = ""
-    phone: str | None = None
-    organization: str | None = None
     # Team placings only. Snapshotted with the placing so the results image
     # still lists who was on the team even if it is disbanded afterwards.
     team_id: str | None = None
@@ -314,20 +402,17 @@ class WinnerOut(BaseModel):
 def to_winner_out(entry: dict) -> WinnerOut:
     if entry.get("team_id"):
         return WinnerOut(
-            position=entry["position"],
+            rank=entry["rank"],
             kind="team",
             team_id=entry["team_id"],
             name=entry.get("name", "(unknown team)"),
             members=[TeamMemberOut(**m) for m in entry.get("members", [])],
         )
     return WinnerOut(
-        position=entry["position"],
+        **person_snapshot(entry),
+        rank=entry["rank"],
         kind="user",
         user_id=entry["user_id"],
-        name=entry.get("name", "(unknown)"),
-        email=entry.get("email", ""),
-        phone=entry.get("phone"),
-        organization=entry.get("organization"),
     )
 
 

@@ -22,26 +22,47 @@ MAX_ROWS = 5000
 COLUMN_ALIASES: dict[str, str] = {
     "name": "name",
     "fullname": "name",
-    "attendeename": "name",
+    "studentname": "name",
     "participantname": "name",
-    "firstname": "name",
+    "membername": "name",
+    "rollno": "roll_no",
+    "rollnumber": "roll_no",
+    "roll": "roll_no",
+    "registerno": "roll_no",
+    "registernumber": "roll_no",
+    "regno": "roll_no",
+    "rollid": "roll_no",
+    "studentid": "roll_no",
+    "domain": "domain",
+    "domainname": "domain",
+    "track": "domain",
+    "team": "domain",
+    "position": "position",
+    "role": "position",
+    "designation": "position",
+    "post": "position",
+    "year": "year",
+    "yearofstudy": "year",
+    "studyyear": "year",
+    "currentyear": "year",
+    "batch": "year",
+    "department": "department",
+    "dept": "department",
+    "branch": "department",
+    "course": "department",
+    "phone": "phone",
+    "phonenumber": "phone",
+    "phoneno": "phone",
+    "mobile": "phone",
+    "mobilenumber": "phone",
+    "mobileno": "phone",
+    "contact": "phone",
+    "contactnumber": "phone",
     "email": "email",
     "emailaddress": "email",
     "emailid": "email",
     "mail": "email",
-    "phone": "phone",
-    "phonenumber": "phone",
-    "mobile": "phone",
-    "mobilenumber": "phone",
-    "contact": "phone",
-    "contactnumber": "phone",
-    "organization": "organization",
-    "organisation": "organization",
-    "company": "organization",
-    "college": "organization",
-    "institution": "organization",
-    "org": "organization",
-    "affiliation": "organization",
+    "mailid": "email",
 }
 
 
@@ -52,19 +73,33 @@ def _normalize_header(header: str) -> str:
 def _fuzzy_field(normalized: str) -> str | None:
     """Fallback for headers the alias table does not list verbatim.
 
-    Enumerating every spelling an organiser might use ("Mobile No", "Contact #",
-    "Cell") is a losing game, so unrecognised headers fall through to substring
-    rules. Order matters: "Company Name" must resolve to organization, not name,
-    so the more specific patterns are checked first.
+    Enumerating every spelling an organiser might use ("Mobile No", "Reg. No",
+    "Yr of Study") is a losing game, so unrecognised headers fall through to
+    substring rules.
+
+    Order matters and is the whole point of this list. "Roll Number" must
+    resolve to roll_no rather than phone on "number", and "Student Name" must
+    not be claimed by a rule for "student id", so the more specific patterns
+    come first and the bare "name" rule comes last.
     """
     for needle, field in (
+        ("roll", "roll_no"),
+        ("register", "roll_no"),
+        ("regno", "roll_no"),
+        ("studentid", "roll_no"),
         ("mail", "email"),
-        ("compan", "organization"),
-        ("organi", "organization"),
-        ("college", "organization"),
-        ("institut", "organization"),
-        ("employer", "organization"),
-        ("firm", "organization"),
+        ("domain", "domain"),
+        ("track", "domain"),
+        ("depart", "department"),
+        ("branch", "department"),
+        ("dept", "department"),
+        ("course", "department"),
+        ("position", "position"),
+        ("designation", "position"),
+        ("role", "position"),
+        ("year", "year"),
+        ("yr", "year"),
+        ("study", "year"),
         ("phone", "phone"),
         ("mobile", "phone"),
         ("contact", "phone"),
@@ -187,16 +222,26 @@ def read_table(filename: str, raw: bytes) -> list[list[str]]:
     return rows
 
 
-def parse_rows(rows: list[list[str]], existing_emails: set[str]) -> tuple[list[ImportRow], dict[int, str], list[str]]:
+def parse_rows(
+    rows: list[list[str]], existing_roll_nos: set[str]
+) -> tuple[list[ImportRow], dict[int, str], list[str]]:
     """Validate each data row and classify what should happen to it."""
     header, *data_rows = rows
     mapping, unmapped = map_columns(header)
 
-    if "name" not in mapping.values() or "email" not in mapping.values():
+    # Name and roll number are the two required fields, so a sheet without
+    # them cannot be imported at all - better to say so once than to mark
+    # every row invalid.
+    missing = [
+        label
+        for field, label in (("name", "name"), ("roll_no", "roll no"))
+        if field not in mapping.values()
+    ]
+    if missing:
         found = ", ".join(h for h in header if h) or "none"
         raise ValueError(
-            "Could not find a name column and an email column. "
-            f"Columns found: {found}. Rename them to 'Name' and 'Email' and try again."
+            f"Could not find a {' column and a '.join(missing)} column. "
+            f"Columns found: {found}. Rename them to 'Name' and 'Roll No' and try again."
         )
 
     if len(data_rows) > MAX_ROWS:
@@ -217,9 +262,13 @@ def parse_rows(rows: list[list[str]], existing_emails: set[str]) -> tuple[list[I
         try:
             user = UserCreate(
                 name=raw_values.get("name", ""),
-                email=raw_values.get("email", ""),
+                roll_no=raw_values.get("roll_no", ""),
+                domain=raw_values.get("domain") or None,
+                position=raw_values.get("position") or None,
+                year=raw_values.get("year") or None,
+                department=raw_values.get("department") or None,
                 phone=raw_values.get("phone") or None,
-                organization=raw_values.get("organization") or None,
+                email=raw_values.get("email") or None,
             )
         except ValidationError as e:
             first = e.errors()[0]
@@ -234,13 +283,15 @@ def parse_rows(rows: list[list[str]], existing_emails: set[str]) -> tuple[list[I
             )
             continue
 
-        if user.email in seen_in_file:
+        # The roll number is the identity, so it is what duplicate detection
+        # keys on - both against the rest of the file and against the database.
+        if user.roll_no in seen_in_file:
             status = "duplicate_in_file"
-        elif user.email in existing_emails:
+        elif user.roll_no in existing_roll_nos:
             status = "already_exists"
         else:
             status = "ok"
-            seen_in_file.add(user.email)
+            seen_in_file.add(user.roll_no)
 
         results.append(
             ImportRow(row_number=row_number, status=status, data=user, raw=raw_values)

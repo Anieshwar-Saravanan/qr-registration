@@ -23,10 +23,11 @@ const SCALE = 3
 // dropping a column never leaves the layout inconsistent.
 const COLUMNS = [
   { key: 'rank', label: '#', width: 58, align: 'center' },
-  { key: 'name', label: 'Name', width: 210, bold: true },
-  { key: 'organization', label: 'Organization', width: 175 },
-  { key: 'email', label: 'Email', width: 285 },
-  { key: 'phone', label: 'Phone', width: 135 },
+  { key: 'name', label: 'Name', width: 205, bold: true },
+  { key: 'roll_no', label: 'Roll No', width: 115 },
+  { key: 'domain', label: 'Domain', width: 175 },
+  { key: 'department', label: 'Department', width: 140 },
+  { key: 'phone', label: 'Phone', width: 130 },
 ]
 
 const TABLE_W = COLUMNS.reduce((sum, c) => sum + c.width, 0)
@@ -193,7 +194,7 @@ export function renderWinnersImage(event, winners) {
       ctx.fillStyle = TEAM_BAND
       ctx.fillRect(PAD, y, TABLE_W, TEAM_ROW_H)
       const headMid = y + TEAM_ROW_H / 2
-      drawRank(ctx, w.position, PAD + COLUMNS[0].width / 2, headMid)
+      drawRank(ctx, w.rank, PAD + COLUMNS[0].width / 2, headMid)
 
       const countText = `${members.length} ${members.length === 1 ? 'member' : 'members'}`
       ctx.font = font('400 12px')
@@ -237,7 +238,7 @@ export function renderWinnersImage(event, winners) {
         ctx.fillRect(PAD, y, TABLE_W, ROW_H)
       }
       if (i > 0) hline(ctx, y)
-      drawRank(ctx, w.position, PAD + COLUMNS[0].width / 2, y + ROW_H / 2)
+      drawRank(ctx, w.rank, PAD + COLUMNS[0].width / 2, y + ROW_H / 2)
       drawPersonCells(ctx, w, y)
       y += ROW_H
     })

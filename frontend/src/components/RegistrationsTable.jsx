@@ -1,3 +1,5 @@
+import { yearLabel } from '../lib/person'
+
 /** Tabulated attendees for one event, with row and bulk removal. */
 export default function RegistrationsTable({
   rows,
@@ -26,8 +28,10 @@ export default function RegistrationsTable({
             </th>
             <th className="col-num">#</th>
             <th>Name</th>
-            <th>Email</th>
-            <th>Organization</th>
+            <th>Roll No</th>
+            <th>Domain</th>
+            <th>Department</th>
+            <th>Year</th>
             {showTeam && <th>Team</th>}
             <th>Registered</th>
             <th>Method</th>
@@ -47,8 +51,10 @@ export default function RegistrationsTable({
               </td>
               <td className="col-num">{offset + i + 1}</td>
               <td className="cell-name">{r.name}</td>
-              <td className="cell-muted cell-email" title={r.email}>{r.email}</td>
-              <td className="cell-muted cell-org" title={r.organization || ''}>{r.organization || '—'}</td>
+              <td className="cell-roll">{r.roll_no || '—'}</td>
+              <td className="cell-muted cell-wrap" title={r.domain || ''}>{r.domain || '—'}</td>
+              <td className="cell-muted cell-wrap" title={r.department || ''}>{r.department || '—'}</td>
+              <td className="cell-muted">{yearLabel(r.year) ?? '—'}</td>
               {showTeam && (
                 <td>
                   {r.team_name ? (

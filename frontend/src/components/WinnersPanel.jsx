@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { listRegistrations, listTeams, listWinners, setWinners } from '../api'
+import { personMeta } from '../lib/person'
 import { downloadWinnersImage, ordinal, renderWinnersImage } from '../lib/winnerImage'
 
 /** A placing is keyed by whichever subject it awards: a team or a person. */
@@ -63,8 +64,8 @@ export default function WinnersPanel({ event, refreshKey }) {
 
   const chosen = new Set(winners.map(keyOf))
   const available = candidates.filter((c) => !chosen.has(isTeamEvent ? c.team_id : c.user_id))
-  const dirty = JSON.stringify(winners.map((w) => [w.position, keyOf(w)])) !==
-    JSON.stringify(saved.map((w) => [w.position, keyOf(w)]))
+  const dirty = JSON.stringify(winners.map((w) => [w.rank, keyOf(w)])) !==
+    JSON.stringify(saved.map((w) => [w.rank, keyOf(w)]))
 
   function add() {
     const pick = available.find((c) => (isTeamEvent ? c.team_id : c.user_id) === picked)
@@ -73,28 +74,28 @@ export default function WinnersPanel({ event, refreshKey }) {
       ...prev,
       isTeamEvent
         ? {
-            position: prev.length + 1,
+            rank: prev.length + 1,
             kind: 'team',
             team_id: pick.team_id,
             name: pick.name,
             members: pick.members ?? [],
           }
         : {
-            position: prev.length + 1,
+            // Spread rather than picked field by field: the placing carries
+            // whatever the roster row carries, so a new attendee field shows
+            // up in the results image without touching this.
+            ...pick,
+            rank: prev.length + 1,
             kind: 'user',
-            user_id: pick.user_id,
-            name: pick.name,
-            email: pick.email,
-            phone: pick.phone,
-            organization: pick.organization,
           },
     ])
     setPicked('')
     setNote(null)
   }
 
-  /** Positions are always 1..n, so removing or moving never leaves a gap. */
-  const renumber = (list) => list.map((w, i) => ({ ...w, position: i + 1 }))
+  /** Ranks are always 1..n, so removing or moving never leaves a gap. The
+   *  placing is `rank`, not `position` - `position` is the person's role. */
+  const renumber = (list) => list.map((w, i) => ({ ...w, rank: i + 1 }))
 
   function remove(key) {
     setLocal((prev) => renumber(prev.filter((w) => keyOf(w) !== key)))
@@ -120,8 +121,8 @@ export default function WinnersPanel({ event, refreshKey }) {
         event.event_id,
         winners.map((w) =>
           isTeamEvent
-            ? { position: w.position, team_id: w.team_id }
-            : { position: w.position, user_id: w.user_id },
+            ? { rank: w.rank, team_id: w.team_id }
+            : { rank: w.rank, user_id: w.user_id },
         ),
       )
       setLocal(result)
@@ -182,7 +183,7 @@ export default function WinnersPanel({ event, refreshKey }) {
             ) : (
               <option key={c.user_id} value={c.user_id}>
                 {c.name}
-                {c.organization ? ` — ${c.organization}` : ''}
+                {personMeta(c) ? ` — ${personMeta(c)}` : ''}
               </option>
             ),
           )}
@@ -203,8 +204,8 @@ export default function WinnersPanel({ event, refreshKey }) {
         <ol className="winner-list">
           {winners.map((w, i) => (
             <li key={keyOf(w)} className={w.kind === 'team' ? 'winner-team' : undefined}>
-              <span className={`place place-${w.position <= 3 ? w.position : 'n'}`}>
-                {ordinal(w.position)}
+              <span className={`place place-${w.rank <= 3 ? w.rank : 'n'}`}>
+                {ordinal(w.rank)}
               </span>
               <span className="winner-name">
                 {w.name}
@@ -215,15 +216,14 @@ export default function WinnersPanel({ event, refreshKey }) {
                     {(w.members?.length ?? 0) === 1 ? 'member' : 'members'}
                   </span>
                 ) : (
-                  w.organization && <span className="user-meta"> · {w.organization}</span>
+                  personMeta(w) && <span className="user-meta"> · {personMeta(w)}</span>
                 )}
                 {w.kind === 'team' && w.members?.length > 0 && (
                   <ol className="winner-members">
                     {w.members.map((m) => (
                       <li key={m.user_id}>
                         {m.name}
-                        {m.organization && <span className="user-meta"> · {m.organization}</span>}
-                        <span className="user-meta"> · {m.email}</span>
+                        {personMeta(m) && <span className="user-meta"> · {personMeta(m)}</span>}
                         {m.phone && <span className="user-meta"> · {m.phone}</span>}
                       </li>
                     ))}

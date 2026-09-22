@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { disbandTeam, listTeams } from '../api'
+import { personMeta } from '../lib/person'
 import { unmarkRegistered } from '../lib/roster'
 
 export default function TeamsPanel({ event, refreshKey, onChanged }) {
@@ -80,7 +81,7 @@ export default function TeamsPanel({ event, refreshKey, onChanged }) {
                 {t.members.map((m) => (
                   <li key={m.user_id}>
                     {m.name}
-                    {m.organization && <span className="user-meta"> · {m.organization}</span>}
+                    {personMeta(m) && <span className="user-meta"> · {personMeta(m)}</span>}
                   </li>
                 ))}
               </ol>

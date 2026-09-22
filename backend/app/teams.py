@@ -12,7 +12,7 @@ from pymongo import ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import BulkWriteError, DuplicateKeyError
 
-from app.models import ScanResult
+from app.models import ScanResult, person_snapshot
 from app.registration import register_user
 
 MAX_NAME_ATTEMPTS = 50
@@ -106,16 +106,7 @@ async def create_team(
         when = when.replace(tzinfo=timezone.utc)
 
     team_id = str(uuid.uuid4())
-    members = [
-        {
-            "user_id": u["user_id"],
-            "name": u["name"],
-            "email": u["email"],
-            "phone": u.get("phone"),
-            "organization": u.get("organization"),
-        }
-        for u in users
-    ]
+    members = [{"user_id": u["user_id"], **person_snapshot(u)} for u in users]
 
     team_doc = {
         "team_id": team_id,
@@ -192,13 +183,7 @@ async def add_team_member(
         where = f" (in {clash['team_name']})" if clash.get("team_name") else ""
         raise TeamError(f"{user['name']} is already registered for this event{where}.", 409)
 
-    member = {
-        "user_id": user["user_id"],
-        "name": user["name"],
-        "email": user["email"],
-        "phone": user.get("phone"),
-        "organization": user.get("organization"),
-    }
+    member = {"user_id": user["user_id"], **person_snapshot(user)}
 
     # The size cap is the scarce resource, so it is claimed atomically: two
     # organisers filling the last place at once cannot both win.

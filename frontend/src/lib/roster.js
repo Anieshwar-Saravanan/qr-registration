@@ -23,10 +23,17 @@ export async function downloadRoster(onProgress) {
     const page = await listUsers({ limit: PAGE, offset })
     total = page.total
     for (const u of page.items) {
+      // The whole record, so an offline scanner can show a person exactly
+      // as the roster table would.
       byId[u.user_id] = {
         name: u.name,
+        roll_no: u.roll_no,
+        domain: u.domain,
+        position: u.position,
+        year: u.year,
+        department: u.department,
+        phone: u.phone,
         email: u.email,
-        organization: u.organization,
       }
     }
     offset += page.items.length

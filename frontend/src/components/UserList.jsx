@@ -1,4 +1,5 @@
 import { badgesPdfUrl, exportZipUrl } from '../api'
+import { personMeta } from '../lib/person'
 
 export default function UserList({
   users,
@@ -33,7 +34,7 @@ export default function UserList({
       <input
         type="search"
         className="search"
-        placeholder="Search by name, email or organization…"
+        placeholder="Search by name, roll no, domain, department…"
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
       />
@@ -54,10 +55,7 @@ export default function UserList({
                   onClick={() => onSelect(u)}
                 >
                   <span className="user-name">{u.name}</span>
-                  <span className="user-meta">
-                    {u.email}
-                    {u.organization ? ` · ${u.organization}` : ''}
-                  </span>
+                  <span className="user-meta">{personMeta(u)}</span>
                 </button>
               </li>
             ))}

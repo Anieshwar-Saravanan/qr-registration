@@ -7,7 +7,9 @@ which is the first thing that falls over under load.
 
 import certifi
 from pymongo import AsyncMongoClient
+from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import OperationFailure
 
 from app.config import DB_NAME, MONGO_URL
 
@@ -32,10 +34,28 @@ def get_db() -> AsyncDatabase:
     return _client[DB_NAME]
 
 
+async def _drop_stale_index(collection: AsyncCollection, name: str) -> None:
+    """Drop an index left over from an earlier schema.
+
+    Indexes outlive the documents they indexed, so one dropped from the code
+    stays in Atlas until something removes it. A stale unique index keeps
+    enforcing a rule the application no longer has.
+    """
+    try:
+        await collection.drop_index(name)
+    except OperationFailure:
+        # IndexNotFound: already gone, which is the normal case after the
+        # first startup on a given cluster.
+        pass
+
+
 async def _ensure_indexes(db: AsyncDatabase) -> None:
-    # Email is the natural identity of an attendee; user_id is what the QR
-    # carries and what gets looked up on every scan.
-    await db.users.create_index("email", unique=True)
+    # The roll number is the natural identity of an attendee; user_id is what
+    # the QR carries and what gets looked up on every scan. Email used to be
+    # the unique key and is now an ordinary optional field, so its old unique
+    # index has to go or a second person with no email would be rejected.
+    await _drop_stale_index(db.users, "email_1")
+    await db.users.create_index("roll_no", unique=True)
     await db.users.create_index("user_id", unique=True)
 
     await db.events.create_index("event_id", unique=True)

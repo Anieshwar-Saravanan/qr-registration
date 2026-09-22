@@ -112,8 +112,8 @@ export default function ImportPanel({ onImported }) {
           )}
           {result.skipped > 0 && (
             <p className="muted">
-              Skipped {result.skipped} already-registered{' '}
-              {result.skipped === 1 ? 'email' : 'emails'}: {result.skipped_emails.join(', ')}
+              Skipped {result.skipped} already-registered roll{' '}
+              {result.skipped === 1 ? 'no' : 'nos'}: {result.skipped_roll_nos.join(', ')}
             </p>
           )}
         </div>
@@ -150,7 +150,7 @@ export default function ImportPanel({ onImported }) {
                     {problemRows.map((r) => (
                       <tr key={r.row_number}>
                         <td className="row-num">Row {r.row_number}</td>
-                        <td>{r.data?.email || r.raw.email || '—'}</td>
+                        <td>{r.data?.roll_no || r.raw.roll_no || r.data?.name || r.raw.name || '—'}</td>
                         <td className={`status-${r.status}`}>
                           {r.error || STATUS_LABELS[r.status]}
                         </td>

@@ -1,13 +1,13 @@
-Full Name,E-mail Address,Mobile No,Company,Ticket Type
-Kavya Subramanian,kavya.subramanian@demoevent.in,9840123456,Zoho,VIP
-Rohan Desai,rohan.desai@demoevent.in,9820234567,Razorpay,General
-Ananya Krishnan,ananya.krishnan@demoevent.in,9740345678,Flipkart,General
-Vikram Chandran,vikram.chandran@demoevent.in,9880456789,Swiggy,Speaker
-Fatima Sheikh,fatima.sheikh@demoevent.in,9930567890,Zerodha,General
-Nikhil Bhatt,nikhil.bhatt@demoevent.in,9900678901,CRED,VIP
-Sneha Pillai,sneha.pillai@demoevent.in,9846789012,Postman,General
-Aditya Rao,aditya.rao@demoevent.in,9701890123,Groww,Speaker
-Ishita Malhotra,ishita.malhotra@demoevent.in,9811901234,Meesho,General
-Karthik Venkatesh,karthik.venkatesh@demoevent.in,9445012345,Freshworks,General
-Divya Nambiar,divya.nambiar@demoevent.in,9847123456,Zoho,General
-Siddharth Menon,siddharth.menon@demoevent.in,9048234567,Chargebee,VIP
+Full Name,Roll Number,Domain,Position,Year of Study,Branch,Mobile No,Mail Id
+Kavya Subramanian,21CS001,Web Development,Lead,4,CSE,9840123456,kavya.subramanian@demoevent.in
+Rohan Desai,21CS014,Web Development,Member,4,CSE,9820234567,rohan.desai@demoevent.in
+Ananya Krishnan,21EC007,Artificial Intelligence,Member,4,ECE,9740345678,ananya.krishnan@demoevent.in
+Vikram Chandran,22IT033,Cybersecurity,Coordinator,3,IT,9880456789,vikram.chandran@demoevent.in
+Latha Ganesan,22CS118,App Development,Member,3,CSE,9840111222,latha.g@demoevent.in
+Rahul Bose,22ME045,Robotics,Member,3,MECH,9840333444,rahul.bose@demoevent.in
+Fatima Sheikh,23AD012,Artificial Intelligence,Member,2,AI&DS,9930567890,fatima.sheikh@demoevent.in
+Arjun Pillai,23EE076,Robotics,Member,2,EEE,9845667788,arjun.pillai@demoevent.in
+Meera Nair,23CS204,Design,Member,2,CSE,9895778899,meera.nair@demoevent.in
+Karthik Venkatesh,24IT091,Web Development,Member,1,IT,9840889900,karthik.v@demoevent.in
+Sneha Reddy,24EC130,Design,Member,1,ECE,9866990011,sneha.reddy@demoevent.in
+Imran Qureshi,24CS255,Cybersecurity,Member,1,CSE,9820101122,imran.qureshi@demoevent.in
