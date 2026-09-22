@@ -73,8 +73,8 @@ export default function ImportPanel({ onImported }) {
     }
   }
 
-  const importable = preview?.summary.ok ?? 0
-  const problemRows = preview?.rows.filter((r) => r.status !== 'ok') ?? []
+  const importable = preview?.summary?.ok ?? 0
+  const problemRows = preview?.rows?.filter((r) => r.status !== 'ok') ?? []
 
   return (
     <div className="card">
@@ -89,8 +89,10 @@ export default function ImportPanel({ onImported }) {
         className="file-input"
       />
       <p className="hint">
-        CSV or XLSX. Needs a name column and an email column — “Full Name”, “E-mail
-        Address”, “Mobile No” and “Company” are all recognised.
+        CSV or XLSX. Needs a <strong>name</strong> column and a <strong>roll no</strong>{' '}
+        column; domain, position, year, department, phone and mail id are picked up when
+        present. “Full Name”, “Register Number”, “Yr of Study”, “Branch”, “Mobile No” and
+        “Mail Id” are all recognised.
       </p>
 
       {busy && <p className="muted">Working…</p>}
@@ -106,14 +108,19 @@ export default function ImportPanel({ onImported }) {
               <button type="button" onClick={handleBadges} disabled={badgeBusy}>
                 {badgeBusy
                   ? 'Building PDF…'
-                  : `Print badges for these ${result.user_ids.length} (PDF)`}
+                  : `Print badges for these ${result.user_ids?.length ?? 0} (PDF)`}
               </button>
             </p>
           )}
           {result.skipped > 0 && (
             <p className="muted">
               Skipped {result.skipped} already-registered roll{' '}
-              {result.skipped === 1 ? 'no' : 'nos'}: {result.skipped_roll_nos.join(', ')}
+              {result.skipped === 1 ? 'no' : 'nos'}
+              {/* Guarded rather than read straight off the response: a backend
+                  a version behind sends a differently-named list, and reading
+                  .join on the missing one threw during render and blanked the
+                  whole page. The count alone is still useful. */}
+              {result.skipped_roll_nos?.length ? `: ${result.skipped_roll_nos.join(', ')}` : '.'}
             </p>
           )}
         </div>
@@ -130,10 +137,10 @@ export default function ImportPanel({ onImported }) {
 
           <p className="hint">
             Columns matched:{' '}
-            {Object.entries(preview.column_mapping)
+            {Object.entries(preview.column_mapping ?? {})
               .map(([col, field]) => `${col} → ${field}`)
               .join(', ')}
-            {preview.unmapped_columns.length > 0 && (
+            {preview.unmapped_columns?.length > 0 && (
               <> · ignored: {preview.unmapped_columns.join(', ')}</>
             )}
           </p>
