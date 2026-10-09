@@ -115,7 +115,7 @@ regardless.
 Versioned JSON, compact-separated:
 
 ```json
-{"v":1,"type":"user","user_id":"<uuid>","name":"...","roll":"...","domain":"..."}
+{"v":1,"type":"user","user_id":"<uuid>","name":"...","roll":"...","pid":42}
 ```
 
 Only the fields printed on the badge ride along as display hints. The rest stay
@@ -126,6 +126,23 @@ the full record from its cached roster instead.
 goes into a QR. Phase 2's switch to an opaque signed token changes that function
 and nothing else — `user_id` is already stored on every document and carried in
 every payload, so no schema migration is needed.
+
+## Adding participants
+
+One card on the Events tab, four modes:
+
+- **Scan QR** — the camera scanner, still lazy-loaded (html5-qrcode is ~350KB
+  and most sessions never open it).
+- **Prodigy ID** — type the number, exact match only. The general search is a
+  substring match, so `7` also returns every roll number containing a 7; that
+  is right for browsing a list and useless at a desk with a queue.
+- **By name** — search and click.
+- **New student** — creates them *and* registers them in one step, because the
+  student standing at the desk is being added to this event, not just to the
+  master list.
+
+There is no separate Scan tab: scanning is a way of adding a participant, not
+a destination.
 
 ## Events and scanning
 
@@ -236,11 +253,10 @@ registered as part of it.
 ## Attendee table
 
 Each event's registrations are shown as a sortable-width table — number, name,
-roll no, domain, department, year, registration time, and how they were
-registered (scan or manual, with the device id). Long domains and department
-names truncate with the full value in a tooltip so the Remove column always
-stays visible; the roll number never truncates, since it is what identifies
-the row.
+PID, roll no, school, standard, score, registration time, and how they were
+registered (scan or manual, with the device id). Long school names truncate
+with the full value in a tooltip so the Remove column always stays visible;
+the roll number and PID never truncate, since they identify the row.
 
 Removal works two ways: a **Remove** button per row, or checkboxes plus
 **Remove selected** for a batch. Bulk removal is one request rather than one
@@ -252,19 +268,46 @@ attendee list, their QR badge stays valid, and they can be registered again.
 Verified: remove, re-register, and the duplicate guard still fires on a second
 attempt.
 
+## Scores
+
+Each registration and each team carries an optional `score`. It is edited in
+place in the table and saved on **blur**, not per keystroke — one request per
+score instead of one per digit. The box is keyed on the score so it re-mounts
+when the value changes underneath it; an uncontrolled `defaultValue` would
+otherwise show a stale number after a reload or a score typed on another
+laptop.
+
+Sorting is **server-side** (`?sort=score`). The table is paged, so sorting only
+the rows already loaded would hide the top score on page 3. Mongo sorts null
+below every number on a descending sort, which is what we want — unscored
+competitors belong at the bottom, not the top, because "not scored yet" is not
+"scored nothing".
+
 ## Winners
 
-Winners are picked from the event's registered attendees, in order — 1st, 2nd,
-3rd and onwards — and reordered with arrows. Positions always renumber to 1..n,
-so removing second place promotes third rather than leaving a gap.
+The Winners tab lists the event's competitors — teams for a team event,
+registrations otherwise — sorted by score. **Right-click a row** (or use the ⋯
+button, because right-click does not exist on a tablet at an event) to set 1st,
+2nd, 3rd, append at the end, or clear.
+
+**Top N** ranks the highest N scores 1..N in one click: "the top 8 go through
+to round two" is a button, not eight right-clicks. A top-3 selection is a
+podium and the image is headed WINNERS; anything wider is a shortlist and the
+image is headed **TOP N** with a "participants" footer, because sending out a
+round-two shortlist titled WINNERS misleads everyone who reads it.
+
+Ranks always renumber to 1..n, so removing second place promotes third rather
+than leaving a gap.
 
 `PUT` replaces the entire list rather than editing one placing at a time; a
 partial update could briefly leave two people sharing a position. The endpoint
 rejects duplicate positions, the same subject winning twice, and unknown
 attendees or teams.
 
-Names are snapshotted alongside the id, so a results image stays true to what
-was announced even if an attendee record is edited afterwards.
+Names **and the score** are snapshotted alongside the id, so a results image
+stays true to what was announced even if a record is edited afterwards. The
+score is read from the registration, not the student: the same student can
+compete in several events with a different score in each.
 
 ### Team events are won by teams
 
@@ -289,7 +332,7 @@ Missing values render as an em dash rather than a blank cell.
 
 For team results the same table takes a second row shape: a banded heading row
 per team (medal, team name, member count) followed by one numbered row per
-member with their roll no, domain, department and phone, so the full roster forwards
+member with their PID, roll no, school and standard, so the full roster forwards
 with the image instead of just the team names. The two shapes share the column
 grid, the medals and the truncation, and `bodyHeight()` is the single place that
 knows a team block is taller than a row.
@@ -386,12 +429,12 @@ Limits: 5MB, 5000 rows.
 ## Printable badge sheets
 
 `backend/app/pdf.py` lays out **16 badges per A4** as a 4x4 grid with cut
-guides: QR code, then **name** in bold, **roll no** beneath it, and **domain**
-in grey below that. One `BADGE_LINES` table drives the block height and every
+guides: QR code, then **name** in bold, **PID** beneath it, and **school** in
+grey below that. One `BADGE_LINES` table drives the block height and every
 baseline, so a line can be added or removed without the layout drifting.
 
 The baseline walks down a full line at a time whether or not that line has a
-value, so someone with no domain gets a badge laid out identically to everyone
+value, so someone with no school gets a badge laid out identically to everyone
 else's on the sheet rather than sitting higher in its cell.
 
 Two ways in:
@@ -407,7 +450,7 @@ printed for someone already in the database — a QR whose `user_id` does not
 exist would be rejected at the door. Import first, then print.
 
 Verified by rendering the PDF at 300dpi and decoding: 40 badges produce 3 pages
-and all 40 scan. Long names and domains are ellipsised to fit the cell.
+and all 40 scan. Long names and school names are ellipsised to fit the cell.
 
 **Limitation:** ReportLab's built-in fonts are Latin-1, so accented names
 ("Zoë Müller") print correctly but non-Latin scripts degrade to `?`. The QR
@@ -417,9 +460,10 @@ means registering a TrueType font with the needed glyphs.
 ## Search
 
 `GET /api/users?q=` does a case-insensitive substring match across name, roll
-no, domain, position, department, email and phone. Year is deliberately left
-out: it is a number, and searching "3" would match roll numbers and phone
-numbers too. The query is regex-escaped, so punctuation in a search box cannot
+no, school, email and phone, plus an **exact** match on the Prodigy ID when
+the query is all digits. Standard is deliberately left out of the substring
+match: it is a number, and searching "9" would match every roll number and
+phone number containing a 9. The query is regex-escaped, so punctuation in a search box cannot
 break the query or pin the server on a pathological pattern.
 
 Being an unanchored regex, it is a collection scan — fine into the low
@@ -431,9 +475,16 @@ available on the M0 tier and is the upgrade path.
 `users` collection, unique indexes on `roll_no` and `user_id`:
 
 ```
-{ _id, user_id (uuid4), name, roll_no, domain, position,
-  year, department, phone, email, created_at }
+{ _id, user_id (uuid4), name, roll_no, prodigy_id,
+  school, standard, phone, email, created_at }
 ```
+
+**The Prodigy ID is typed in, not generated.** It is optional and unique, via a
+**partial** index (`{prodigy_id: {$type: "number"}}`): a plain unique index
+treats every missing value as the same one, so the second student left without
+a PID would be rejected. Import preview checks it alongside the roll number —
+letting a clash through would mean a row that looks importable and then dies on
+the index.
 
 **Name and roll no are the only required fields.** Everything else is optional,
 so a patchy spreadsheet column does not reject otherwise-good rows — a blank

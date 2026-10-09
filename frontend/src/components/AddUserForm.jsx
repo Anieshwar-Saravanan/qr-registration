@@ -1,19 +1,10 @@
 import { useState } from 'react'
 import { createUser } from '../api'
-import { YEAR_OPTIONS, yearLabel } from '../lib/person'
+import { STANDARD_OPTIONS, standardLabel } from '../lib/person'
 
-const EMPTY = {
-  name: '',
-  roll_no: '',
-  domain: '',
-  position: '',
-  year: '',
-  department: '',
-  phone: '',
-  email: '',
-}
+const EMPTY = { name: '', prodigy_id: '', roll_no: '', school: '', standard: '', phone: '', email: '' }
 
-export default function AddUserForm({ onCreated }) {
+export default function AddUserForm({ onCreated, embedded = false }) {
   const [form, setForm] = useState(EMPTY)
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -28,10 +19,6 @@ export default function AddUserForm({ onCreated }) {
     if (added) setAdded(null)
   }
 
-  function scrollToQr() {
-    document.querySelector('.qr-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
   async function handleSubmit(e) {
     e.preventDefault()
     setSaving(true)
@@ -44,17 +31,16 @@ export default function AddUserForm({ onCreated }) {
       const created = await createUser({
         name: form.name.trim(),
         roll_no: form.roll_no.trim(),
-        domain: blank(form.domain),
-        position: blank(form.position),
-        year: form.year ? Number(form.year) : null,
-        department: blank(form.department),
+        prodigy_id: form.prodigy_id ? Number(form.prodigy_id) : null,
+        school: blank(form.school),
+        standard: form.standard ? Number(form.standard) : null,
         phone: blank(form.phone),
         email: blank(form.email),
       })
-      setForm(EMPTY)
-      // On a narrow screen the QR panel sits far below this form, so without
-      // an explicit confirmation here a successful add looks like nothing
-      // happened - the fields simply empty.
+      // School and standard are kept: a whole school is usually entered in one
+      // sitting, so clearing them would mean retyping the same two values for
+      // every student.
+      setForm({ ...EMPTY, school: form.school, standard: form.standard })
       setAdded(created)
       onCreated(created)
     } catch (err) {
@@ -65,74 +51,65 @@ export default function AddUserForm({ onCreated }) {
   }
 
   return (
-    <form className="card" onSubmit={handleSubmit}>
-      <h2>Add attendee</h2>
+    <form className={embedded ? '' : 'card'} onSubmit={handleSubmit}>
+      {!embedded && <h2>Add student</h2>}
       <label>
         Name <span className="req">*</span>
-        <input value={form.name} onChange={update('name')} required placeholder="Jane Doe" />
-      </label>
-      <label>
-        Roll no <span className="req">*</span>
-        <input
-          value={form.roll_no}
-          onChange={update('roll_no')}
-          required
-          placeholder="21CS001"
-          autoCapitalize="characters"
-        />
-      </label>
-      <label>
-        Domain
-        <input value={form.domain} onChange={update('domain')} placeholder="Web Development" />
-      </label>
-      <label>
-        Position
-        <input value={form.position} onChange={update('position')} placeholder="Member" />
+        <input value={form.name} onChange={update('name')} required placeholder="Jane Doe" autoFocus />
       </label>
       <div className="field-row">
         <label>
-          Year
-          <select value={form.year} onChange={update('year')}>
+          Prodigy ID
+          <input
+            type="number"
+            min="1"
+            value={form.prodigy_id}
+            onChange={update('prodigy_id')}
+            placeholder="1"
+          />
+        </label>
+        <label>
+          Roll no <span className="req">*</span>
+          <input value={form.roll_no} onChange={update('roll_no')} required placeholder="9A01" />
+        </label>
+      </div>
+      <label>
+        School
+        <input value={form.school} onChange={update('school')} placeholder="DAV Public School" />
+      </label>
+      <div className="field-row">
+        <label>
+          Standard
+          <select value={form.standard} onChange={update('standard')}>
             <option value="">—</option>
-            {YEAR_OPTIONS.map((y) => (
-              <option key={y} value={y}>
-                {yearLabel(y)}
+            {STANDARD_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {standardLabel(s)}
               </option>
             ))}
           </select>
         </label>
         <label>
-          Department
-          <input value={form.department} onChange={update('department')} placeholder="CSE" />
+          Phone number
+          <input value={form.phone} onChange={update('phone')} placeholder="98400 00000" />
         </label>
       </div>
       <label>
-        Phone number
-        <input value={form.phone} onChange={update('phone')} placeholder="+91 98400 00000" />
-      </label>
-      <label>
         Mail id
-        <input
-          type="email"
-          value={form.email}
-          onChange={update('email')}
-          placeholder="jane@example.com"
-        />
+        <input type="email" value={form.email} onChange={update('email')} placeholder="jane@example.com" />
       </label>
 
       {error && <p className="form-error">{error}</p>}
-      {added && (
+      {added && !embedded && (
         <p className="ok-note">
-          Added <strong>{added.name}</strong> ({added.roll_no}). Their QR code is ready
-          {' '}
-          <button type="button" className="link-button" onClick={scrollToQr}>
-            — view it
-          </button>
+          Added <strong>{added.name}</strong>
+          {added.prodigy_id != null ? ` (PID ${added.prodigy_id})` : ''} — click them in the
+          table to see their QR.
         </p>
       )}
 
       <button type="submit" disabled={saving}>
-        {saving ? 'Saving…' : 'Add attendee'}
+        {saving ? 'Saving…' : 'Add student'}
       </button>
     </form>
   )

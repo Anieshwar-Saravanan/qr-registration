@@ -2,15 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   eventStats,
   listRegistrations,
-  listTeams,
-  listUsers,
-  manualRegister,
   registrationsCsvUrl,
   removeRegistrations,
+  setRegistrationScore,
   undoRegistration,
 } from '../api'
-import { getDeviceId } from '../lib/device'
-import { personMeta } from '../lib/person'
 import { downloadRoster, getRoster, primeRegistered, unmarkRegistered } from '../lib/roster'
 import RegistrationsTable from './RegistrationsTable'
 
@@ -26,32 +22,27 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
   const [selected, setSelected] = useState(new Set())
   const [note, setNote] = useState(null)
 
-  const [manualQuery, setManualQuery] = useState('')
-  const [candidates, setCandidates] = useState([])
-  const [manualNote, setManualNote] = useState(null)
-  const [teams, setTeams] = useState([])
-  const [manualTeam, setManualTeam] = useState('')
   const [roster, setRoster] = useState(null)
   const [rosterBusy, setRosterBusy] = useState(false)
   const [rosterNote, setRosterNote] = useState(null)
 
-  const isTeamEvent = event?.event_type === 'team'
-  const isFull = (t) => event?.team_size_max != null && t.size >= event.team_size_max
+  // Sorting is server-side, so the top score on page 3 still comes first.
+  const [byScore, setByScore] = useState(false)
 
   const load = useCallback(async () => {
     if (!event) return
     try {
-      const [page, s, t] = await Promise.all([
-        listRegistrations(event.event_id, { q: query, limit: PAGE_SIZE }),
+      const [page, s] = await Promise.all([
+        listRegistrations(event.event_id, {
+          q: query,
+          sort: byScore ? 'score' : '',
+          limit: PAGE_SIZE,
+        }),
         eventStats(event.event_id),
-        // Needed to ask which team a manually-added person joins, and to know
-        // which teams are already full.
-        event.event_type === 'team' ? listTeams(event.event_id) : Promise.resolve([]),
       ])
       setRows(page.items)
       setTotal(page.total)
       setStats(s)
-      setTeams(t)
       setError(null)
       // Keep this device aware of who other volunteers have registered - and,
       // when this page IS the whole registration list, of who is no longer
@@ -65,7 +56,7 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
     } catch (err) {
       setError(err.message)
     }
-  }, [event, query])
+  }, [event, query, byScore])
 
   useEffect(() => {
     const t = setTimeout(load, 250)
@@ -82,18 +73,16 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
     setSelected(new Set())
   }, [query, event])
 
-  // A team can fill up or be disbanded while it is selected here; leaving the
-  // stale choice in place would send the add to a team that cannot take it.
-  useEffect(() => {
-    if (manualTeam && !teams.some((t) => t.team_id === manualTeam && !isFull(t))) {
-      setManualTeam('')
-    }
-  }, [teams, manualTeam]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadMore() {
     setBusy(true)
     try {
-      const page = await listRegistrations(event.event_id, { q: query, limit: PAGE_SIZE, offset: rows.length })
+      const page = await listRegistrations(event.event_id, {
+        q: query,
+        sort: byScore ? 'score' : '',
+        limit: PAGE_SIZE,
+        offset: rows.length,
+      })
       setRows((prev) => [...prev, ...page.items])
       setTotal(page.total)
     } catch (err) {
@@ -157,44 +146,17 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
     }
   }
 
-  // Manual fallback: find someone by name when their badge will not scan.
-  useEffect(() => {
-    if (!manualQuery.trim()) {
-      setCandidates([])
-      return
-    }
-    setManualNote(null)
-    const t = setTimeout(() => {
-      listUsers({ q: manualQuery, limit: 6 })
-        .then((r) => setCandidates(r.items))
-        .catch(() => setCandidates([]))
-    }, 250)
-    return () => clearTimeout(t)
-  }, [manualQuery])
-
-  async function handleManual(user) {
-    if (isTeamEvent && !manualTeam) {
-      setManualNote({ status: 'error', message: 'Choose which team they are joining first.' })
-      return
-    }
+  async function handleScore(row, score) {
+    // Written straight through rather than kept in local state: two people
+    // scoring from two laptops is the normal case at a desk.
     try {
-      // The endpoint answers 200 for refusals too - already registered, event
-      // closed, event full - so the status has to be read.
-      const res = await manualRegister(
-        event.event_id,
-        user.user_id,
-        getDeviceId(),
-        isTeamEvent ? manualTeam : null,
+      const updated = await setRegistrationScore(event.event_id, row.user_id, score)
+      setRows((prev) =>
+        prev.map((r) => (r.user_id === row.user_id ? { ...r, score: updated.score } : r)),
       )
-      setManualNote({ status: res.status, message: res.message })
-      if (res.status === 'registered') {
-        setManualQuery('')
-        setCandidates([])
-        await load()
-        onChanged?.()
-      }
+      setError(null)
     } catch (err) {
-      setManualNote({ status: 'error', message: err.message })
+      setError(err.message)
     }
   }
 
@@ -278,6 +240,9 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
             onToggle={toggle}
             onToggleAll={toggleAll}
             onRemove={handleRemoveOne}
+            onScore={handleScore}
+            sortedByScore={byScore}
+            onSortByScore={() => setByScore((v) => !v)}
           />
           {rows.length < total && (
             <button className="secondary full-width" onClick={loadMore} disabled={busy}>
@@ -304,64 +269,6 @@ export default function RegistrationsPanel({ event, refreshKey, onChanged }) {
         {rosterNote && <p className="ok-note">{rosterNote}</p>}
       </div>
 
-      <h3 className="section-label">Register manually</h3>
-      {isTeamEvent && (
-        <>
-          <select
-            className="search team-picker"
-            value={manualTeam}
-            onChange={(e) => {
-              setManualTeam(e.target.value)
-              setManualNote(null)
-            }}
-          >
-            <option value="">
-              {teams.length ? 'Which team are they joining?' : 'No teams yet'}
-            </option>
-            {teams.map((t) => (
-              <option key={t.team_id} value={t.team_id} disabled={isFull(t)}>
-                {t.name} — {t.size}
-                {event.team_size_max ? `/${event.team_size_max}` : ''} members
-                {isFull(t) ? ' (full)' : ''}
-              </option>
-            ))}
-          </select>
-          <p className="hint">
-            {teams.length
-              ? 'Everyone on a team event belongs to a team, so pick theirs before adding them.'
-              : 'Form the first team in the Scan tab — a team cannot start with one person.'}
-          </p>
-        </>
-      )}
-      <input
-        className="search"
-        placeholder="Badge won’t scan? Find them by name…"
-        value={manualQuery}
-        onChange={(e) => setManualQuery(e.target.value)}
-        disabled={isTeamEvent && teams.length === 0}
-      />
-      {manualNote && (
-        <p className={manualNote.status === 'registered' ? 'ok-note' : 'form-error'}>
-          {manualNote.message}
-        </p>
-      )}
-      {manualQuery.trim() && candidates.length === 0 && !manualNote && (
-        <p className="hint">No attendee matches “{manualQuery}”.</p>
-      )}
-      {candidates.length > 0 && (
-        <ul className="user-list candidates">
-          {candidates.map((u) => (
-            <li key={u.user_id}>
-              <button className="user-row" onClick={() => handleManual(u)}>
-                <span className="user-name">{u.name}</span>
-                <span className="user-meta">
-                  {personMeta(u) || u.email}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   )
 }

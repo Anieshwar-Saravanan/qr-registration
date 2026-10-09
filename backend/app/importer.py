@@ -24,32 +24,24 @@ COLUMN_ALIASES: dict[str, str] = {
     "fullname": "name",
     "studentname": "name",
     "participantname": "name",
-    "membername": "name",
     "rollno": "roll_no",
     "rollnumber": "roll_no",
     "roll": "roll_no",
     "registerno": "roll_no",
     "registernumber": "roll_no",
     "regno": "roll_no",
-    "rollid": "roll_no",
     "studentid": "roll_no",
-    "domain": "domain",
-    "domainname": "domain",
-    "track": "domain",
-    "team": "domain",
-    "position": "position",
-    "role": "position",
-    "designation": "position",
-    "post": "position",
-    "year": "year",
-    "yearofstudy": "year",
-    "studyyear": "year",
-    "currentyear": "year",
-    "batch": "year",
-    "department": "department",
-    "dept": "department",
-    "branch": "department",
-    "course": "department",
+    "prodigyid": "prodigy_id",
+    "pid": "prodigy_id",
+    "prodigy": "prodigy_id",
+    "prodigyno": "prodigy_id",
+    "school": "school",
+    "schoolname": "school",
+    "institution": "school",
+    "standard": "standard",
+    "std": "standard",
+    "class": "standard",
+    "grade": "standard",
     "phone": "phone",
     "phonenumber": "phone",
     "phoneno": "phone",
@@ -73,33 +65,25 @@ def _normalize_header(header: str) -> str:
 def _fuzzy_field(normalized: str) -> str | None:
     """Fallback for headers the alias table does not list verbatim.
 
-    Enumerating every spelling an organiser might use ("Mobile No", "Reg. No",
-    "Yr of Study") is a losing game, so unrecognised headers fall through to
-    substring rules.
-
-    Order matters and is the whole point of this list. "Roll Number" must
-    resolve to roll_no rather than phone on "number", and "Student Name" must
-    not be claimed by a rule for "student id", so the more specific patterns
-    come first and the bare "name" rule comes last.
+    Order matters and is the whole point of this list. "Prodigy ID" must not
+    be claimed by a rule for "id", "Roll Number" must resolve to roll_no
+    rather than phone on "number", and "School Name" must not be claimed by
+    the bare "name" rule - so the specific patterns come first and "name"
+    comes last.
     """
     for needle, field in (
+        ("prodigy", "prodigy_id"),
+        ("pid", "prodigy_id"),
         ("roll", "roll_no"),
         ("register", "roll_no"),
         ("regno", "roll_no"),
-        ("studentid", "roll_no"),
         ("mail", "email"),
-        ("domain", "domain"),
-        ("track", "domain"),
-        ("depart", "department"),
-        ("branch", "department"),
-        ("dept", "department"),
-        ("course", "department"),
-        ("position", "position"),
-        ("designation", "position"),
-        ("role", "position"),
-        ("year", "year"),
-        ("yr", "year"),
-        ("study", "year"),
+        ("school", "school"),
+        ("institut", "school"),
+        ("standard", "standard"),
+        ("class", "standard"),
+        ("grade", "standard"),
+        ("std", "standard"),
         ("phone", "phone"),
         ("mobile", "phone"),
         ("contact", "phone"),
@@ -223,7 +207,9 @@ def read_table(filename: str, raw: bytes) -> list[list[str]]:
 
 
 def parse_rows(
-    rows: list[list[str]], existing_roll_nos: set[str]
+    rows: list[list[str]],
+    existing_roll_nos: set[str],
+    existing_prodigy_ids: set[int] = frozenset(),
 ) -> tuple[list[ImportRow], dict[int, str], list[str]]:
     """Validate each data row and classify what should happen to it."""
     header, *data_rows = rows
@@ -248,7 +234,8 @@ def parse_rows(
         raise ValueError(f"File has {len(data_rows)} rows; the limit is {MAX_ROWS}.")
 
     results: list[ImportRow] = []
-    seen_in_file: set[str] = set()
+    seen_rolls: set[str] = set()
+    seen_pids: set[int] = set()
 
     for offset, row in enumerate(data_rows):
         row_number = offset + 2  # 1-indexed, and the header occupies row 1
@@ -263,10 +250,9 @@ def parse_rows(
             user = UserCreate(
                 name=raw_values.get("name", ""),
                 roll_no=raw_values.get("roll_no", ""),
-                domain=raw_values.get("domain") or None,
-                position=raw_values.get("position") or None,
-                year=raw_values.get("year") or None,
-                department=raw_values.get("department") or None,
+                prodigy_id=raw_values.get("prodigy_id") or None,
+                school=raw_values.get("school") or None,
+                standard=raw_values.get("standard") or None,
                 phone=raw_values.get("phone") or None,
                 email=raw_values.get("email") or None,
             )
@@ -283,15 +269,21 @@ def parse_rows(
             )
             continue
 
-        # The roll number is the identity, so it is what duplicate detection
-        # keys on - both against the rest of the file and against the database.
-        if user.roll_no in seen_in_file:
+        # Both the roll number and the Prodigy ID are unique in the database,
+        # so both are checked here. Catching a clash in the preview is the
+        # whole point of the preview - letting it through means a row that
+        # looks importable and then fails on the unique index.
+        if user.roll_no in seen_rolls or user.prodigy_id in seen_pids:
             status = "duplicate_in_file"
-        elif user.roll_no in existing_roll_nos:
+        elif user.roll_no in existing_roll_nos or (
+            user.prodigy_id is not None and user.prodigy_id in existing_prodigy_ids
+        ):
             status = "already_exists"
         else:
             status = "ok"
-            seen_in_file.add(user.roll_no)
+            seen_rolls.add(user.roll_no)
+            if user.prodigy_id is not None:
+                seen_pids.add(user.prodigy_id)
 
         results.append(
             ImportRow(row_number=row_number, status=status, data=user, raw=raw_values)

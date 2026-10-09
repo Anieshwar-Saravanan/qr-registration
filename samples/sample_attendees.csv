@@ -1,13 +1,13 @@
-Full Name,Roll Number,Domain,Position,Year of Study,Branch,Mobile No,Mail Id
-Kavya Subramanian,21CS001,Web Development,Lead,4,CSE,9840123456,kavya.subramanian@demoevent.in
-Rohan Desai,21CS014,Web Development,Member,4,CSE,9820234567,rohan.desai@demoevent.in
-Ananya Krishnan,21EC007,Artificial Intelligence,Member,4,ECE,9740345678,ananya.krishnan@demoevent.in
-Vikram Chandran,22IT033,Cybersecurity,Coordinator,3,IT,9880456789,vikram.chandran@demoevent.in
-Latha Ganesan,22CS118,App Development,Member,3,CSE,9840111222,latha.g@demoevent.in
-Rahul Bose,22ME045,Robotics,Member,3,MECH,9840333444,rahul.bose@demoevent.in
-Fatima Sheikh,23AD012,Artificial Intelligence,Member,2,AI&DS,9930567890,fatima.sheikh@demoevent.in
-Arjun Pillai,23EE076,Robotics,Member,2,EEE,9845667788,arjun.pillai@demoevent.in
-Meera Nair,23CS204,Design,Member,2,CSE,9895778899,meera.nair@demoevent.in
-Karthik Venkatesh,24IT091,Web Development,Member,1,IT,9840889900,karthik.v@demoevent.in
-Sneha Reddy,24EC130,Design,Member,1,ECE,9866990011,sneha.reddy@demoevent.in
-Imran Qureshi,24CS255,Cybersecurity,Member,1,CSE,9820101122,imran.qureshi@demoevent.in
+Name,Prodigy ID,Roll No,School,Standard,Phone Number,Mail Id
+Kavya Subramanian,1,9A01,DAV Public School,9,9840123456,kavya.s@demoevent.in
+Rohan Desai,2,9A14,DAV Public School,9,9820234567,rohan.desai@demoevent.in
+Ananya Krishnan,3,10B07,DAV Public School,10,9740345678,ananya.k@demoevent.in
+Vikram Chandran,4,10B33,St. Xavier's Higher Secondary,10,9880456789,vikram.c@demoevent.in
+Latha Ganesan,5,11C18,St. Xavier's Higher Secondary,11,9840111222,latha.g@demoevent.in
+Rahul Bose,6,11C45,Chettinad Vidyashram,11,9840333444,rahul.bose@demoevent.in
+Fatima Sheikh,7,12A12,Chettinad Vidyashram,12,9930567890,fatima.s@demoevent.in
+Arjun Pillai,8,12A76,Chettinad Vidyashram,12,9845667788,arjun.pillai@demoevent.in
+Meera Nair,9,9B04,PSBB Senior Secondary,9,9895778899,meera.nair@demoevent.in
+Karthik Venkatesh,10,10A91,PSBB Senior Secondary,10,9840889900,karthik.v@demoevent.in
+Sneha Reddy,11,11B30,PSBB Senior Secondary,11,9866990011,sneha.reddy@demoevent.in
+Imran Qureshi,12,12C55,PSBB Senior Secondary,12,9820101122,imran.q@demoevent.in

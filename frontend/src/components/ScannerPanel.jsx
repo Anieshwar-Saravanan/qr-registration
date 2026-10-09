@@ -29,7 +29,7 @@ const STATUS_TEXT = {
 }
 const ANY_SCAN_COOLDOWN_MS = 900
 
-export default function ScannerPanel({ event, onRegistered }) {
+export default function ScannerPanel({ event, onRegistered, embedded = false }) {
   const [scanning, setScanning] = useState(false)
   const [result, setResult] = useState(null)
   const [recent, setRecent] = useState([])
@@ -363,18 +363,15 @@ export default function ScannerPanel({ event, onRegistered }) {
   useEffect(() => () => { stop() }, [])
 
   if (!event) {
-    return (
-      <div className="card">
-        <h2>Scan</h2>
-        <p className="muted">Select an event first — scans have to go somewhere.</p>
-      </div>
-    )
+    return <p className="muted">Select an event first — scans have to go somewhere.</p>
   }
 
+  // `embedded` drops the card chrome: inside the Add participants card a
+  // second card border and heading would just be a box in a box.
   return (
-    <div className="card">
+    <div className={embedded ? 'scan-embedded' : 'card'}>
       <div className="list-header">
-        <h2>Scanning into “{event.name}”</h2>
+        {!embedded && <h2>Scanning into “{event.name}”</h2>}
         <span className={online ? 'chip chip-online' : 'chip chip-offline'}>
           {online ? 'online' : 'offline'}
           {queued > 0 ? ` · ${queued} queued` : ''}
@@ -383,7 +380,7 @@ export default function ScannerPanel({ event, onRegistered }) {
 
       {!roster && (
         <p className="warn-note">
-          No roster cached on this device. Download it from the Event tab before going
+          No roster cached on this device. Save it from the Registered panel before going
           offline, or scans cannot be checked without a network.
         </p>
       )}

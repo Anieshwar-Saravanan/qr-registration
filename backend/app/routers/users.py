@@ -43,9 +43,11 @@ def _slugify(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", ascii_name).strip("-").lower() or "attendee"
 
 
-# Every text field worth typing into a search box. Year is left out: it is a
-# number, and searching "3" would match roll numbers and phone numbers too.
-SEARCH_FIELDS = ("name", "roll_no", "domain", "position", "department", "email", "phone")
+# Every text field worth typing into a search box. The numeric fields -
+# prodigy_id and standard - are left out on purpose: searching "9" would match
+# every roll number and phone number containing a 9. The Prodigy ID is looked
+# up by exact match instead, in `_pid_filter`.
+SEARCH_FIELDS = ("name", "roll_no", "school", "email", "phone")
 
 
 def _search_filter(q: str | None) -> dict:
@@ -56,12 +58,13 @@ def _search_filter(q: str | None) -> dict:
     """
     if not q or not q.strip():
         return {}
-    pattern = re.escape(q.strip())
-    return {
-        "$or": [
-            {field: {"$regex": pattern, "$options": "i"}} for field in SEARCH_FIELDS
-        ]
-    }
+    text = q.strip()
+    pattern = re.escape(text)
+    clauses = [{field: {"$regex": pattern, "$options": "i"}} for field in SEARCH_FIELDS]
+    # "7" means Prodigy ID 7, not "every roll number containing a 7".
+    if text.isdigit():
+        clauses.insert(0, {"prodigy_id": int(text)})
+    return {"$or": clauses}
 
 
 def _new_user_doc(payload: UserCreate) -> dict:
@@ -91,7 +94,10 @@ async def create_user(payload: UserCreate) -> UserOut:
     except DuplicateKeyError:
         raise HTTPException(
             status_code=409,
-            detail=f"Roll no {payload.roll_no} is already on the attendee list.",
+            detail=(
+                f"Roll no {payload.roll_no} or Prodigy ID {payload.prodigy_id} "
+                "is already on the attendee list."
+            ),
         )
     return to_user_out(doc)
 
@@ -101,7 +107,7 @@ async def list_users(
     q: str | None = Query(
         default=None,
         max_length=120,
-        description="Search name, roll no, domain, position, department, email or phone",
+        description="Search name, roll no, school, email or phone - or an exact Prodigy ID",
     ),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -150,12 +156,15 @@ async def preview_import(file: UploadFile = File(...)) -> ImportPreview:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    existing = {
-        doc["roll_no"] async for doc in get_db().users.find({}, {"roll_no": 1, "_id": 0})
-    }
+    existing_rolls: set[str] = set()
+    existing_pids: set[int] = set()
+    async for doc in get_db().users.find({}, {"roll_no": 1, "prodigy_id": 1, "_id": 0}):
+        existing_rolls.add(doc["roll_no"])
+        if doc.get("prodigy_id") is not None:
+            existing_pids.add(doc["prodigy_id"])
 
     try:
-        rows, mapping, unmapped = parse_rows(table, existing)
+        rows, mapping, unmapped = parse_rows(table, existing_rolls, existing_pids)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

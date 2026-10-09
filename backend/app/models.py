@@ -7,13 +7,12 @@ from typing import Literal
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
-# Colleges run four-year programmes, with five-year integrated courses common
-# enough to allow for. The form offers 1-4; the importer accepts up to 5.
-YEAR_MIN, YEAR_MAX = 1, 5
+# School students only, so the form offers these four and nothing else.
+STANDARD_MIN, STANDARD_MAX = 9, 12
 
 
 class UserCreate(BaseModel):
-    """One person on the attendee list.
+    """One student on the attendee list.
 
     Only name and roll number are required. Everything else is optional so a
     patchy spreadsheet column does not reject otherwise-good rows - a blank
@@ -25,10 +24,11 @@ class UserCreate(BaseModel):
     # "String should have at least 1 character".
     name: str = Field(max_length=120)
     roll_no: str = Field(max_length=40)
-    domain: str | None = Field(default=None, max_length=120)
-    position: str | None = Field(default=None, max_length=120)
-    year: int | None = Field(default=None, ge=YEAR_MIN, le=YEAR_MAX)
-    department: str | None = Field(default=None, max_length=120)
+    # Typed in by hand for now. Optional, but unique when given - the index is
+    # partial, so any number of students can be left without one.
+    prodigy_id: int | None = Field(default=None, ge=1)
+    school: str | None = Field(default=None, max_length=160)
+    standard: int | None = Field(default=None, ge=STANDARD_MIN, le=STANDARD_MAX)
     phone: str | None = Field(default=None, max_length=32)
     email: EmailStr | None = None
 
@@ -54,17 +54,17 @@ class UserCreate(BaseModel):
     @field_validator("email", mode="before")
     @classmethod
     def blank_email_to_none(cls, v: object) -> object:
-        # Email is optional now, and an empty cell must mean "not given"
-        # rather than failing EmailStr validation on an empty string.
+        # Email is optional, and an empty cell must mean "not given" rather
+        # than failing EmailStr validation on an empty string.
         if v is None:
             return None
         text = str(v).strip().lower()
         return text or None
 
-    @field_validator("year", mode="before")
+    @field_validator("prodigy_id", "standard", mode="before")
     @classmethod
-    def coerce_year(cls, v: object) -> object:
-        """Accept what a spreadsheet actually contains: 3, "3", "3rd", "III Year"."""
+    def blank_number_to_none(cls, v: object) -> object:
+        """Accept what a spreadsheet actually holds: 9, "9", "9th", "Class 9"."""
         if v is None or isinstance(v, int):
             return v
         text = str(v).strip()
@@ -73,13 +73,9 @@ class UserCreate(BaseModel):
         digits = re.search(r"\d+", text)
         if digits:
             return int(digits.group())
-        roman = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5}
-        key = text.upper().replace("YEAR", "").strip()
-        if key in roman:
-            return roman[key]
-        raise ValueError(f"Year must be a number from {YEAR_MIN} to {YEAR_MAX}.")
+        raise ValueError("Must be a number.")
 
-    @field_validator("domain", "position", "department", "phone")
+    @field_validator("school", "phone")
     @classmethod
     def strip_blank_to_none(cls, v: str | None) -> str | None:
         if v is None:
@@ -91,10 +87,9 @@ class UserOut(BaseModel):
     user_id: str
     name: str
     roll_no: str
-    domain: str | None = None
-    position: str | None = None
-    year: int | None = None
-    department: str | None = None
+    prodigy_id: int | None = None
+    school: str | None = None
+    standard: int | None = None
     phone: str | None = None
     email: EmailStr | None = None
     created_at: datetime
@@ -257,10 +252,9 @@ class PersonFields(BaseModel):
 
     name: str
     roll_no: str = ""
-    domain: str | None = None
-    position: str | None = None
-    year: int | None = None
-    department: str | None = None
+    prodigy_id: int | None = None
+    school: str | None = None
+    standard: int | None = None
     phone: str | None = None
     email: str = ""
 
@@ -268,10 +262,9 @@ class PersonFields(BaseModel):
 SNAPSHOT_FIELDS = (
     "name",
     "roll_no",
-    "domain",
-    "position",
-    "year",
-    "department",
+    "prodigy_id",
+    "school",
+    "standard",
     "phone",
     "email",
 )
@@ -296,6 +289,9 @@ class RegistrationOut(PersonFields):
     event_id: str
     user_id: str
     registered_at: datetime
+    # Null until someone scores them. Float, not int, because half marks and
+    # tie-break fractions turn up more often than you would like.
+    score: float | None = None
     method: Literal["scan", "manual"]
     device_id: str | None = None
     # Null for an individual registration.
@@ -337,6 +333,7 @@ def to_registration_out(doc: dict) -> RegistrationOut:
         event_id=doc["event_id"],
         user_id=doc["user_id"],
         registered_at=doc["registered_at"],
+        score=doc.get("score"),
         method=doc.get("method", "scan"),
         device_id=doc.get("device_id"),
         team_id=doc.get("team_id"),
@@ -359,6 +356,12 @@ class RemoveRegistrations(BaseModel):
 
 class TeamMemberOut(PersonFields):
     user_id: str
+
+
+class ScoreUpdate(BaseModel):
+    """Set or clear one competitor's score. Null clears it."""
+
+    score: float | None = None
 
 
 class WinnerEntry(BaseModel):
@@ -393,6 +396,9 @@ class WinnerOut(PersonFields):
     rank: int
     kind: Literal["user", "team"] = "user"
     user_id: str | None = None
+    # Snapshotted with the placing so the results image shows the score the
+    # placing was actually decided on, even if it is edited afterwards.
+    score: float | None = None
     # Team placings only. Snapshotted with the placing so the results image
     # still lists who was on the team even if it is disbanded afterwards.
     team_id: str | None = None
@@ -406,6 +412,7 @@ def to_winner_out(entry: dict) -> WinnerOut:
             kind="team",
             team_id=entry["team_id"],
             name=entry.get("name", "(unknown team)"),
+            score=entry.get("score"),
             members=[TeamMemberOut(**m) for m in entry.get("members", [])],
         )
     return WinnerOut(
@@ -413,6 +420,7 @@ def to_winner_out(entry: dict) -> WinnerOut:
         rank=entry["rank"],
         kind="user",
         user_id=entry["user_id"],
+        score=entry.get("score"),
     )
 
 
@@ -447,6 +455,7 @@ class TeamOut(BaseModel):
     event_id: str
     name: str
     size: int
+    score: float | None = None
     members: list[TeamMemberOut]
     created_at: datetime
     device_id: str | None = None
@@ -460,6 +469,7 @@ def to_team_out(doc: dict) -> TeamOut:
         event_id=doc["event_id"],
         name=doc["name"],
         size=doc.get("size", len(doc.get("members", []))),
+        score=doc.get("score"),
         members=[TeamMemberOut(**m) for m in doc.get("members", [])],
         created_at=doc["created_at"],
         device_id=doc.get("device_id"),

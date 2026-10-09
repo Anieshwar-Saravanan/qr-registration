@@ -28,10 +28,9 @@ export async function downloadRoster(onProgress) {
       byId[u.user_id] = {
         name: u.name,
         roll_no: u.roll_no,
-        domain: u.domain,
-        position: u.position,
-        year: u.year,
-        department: u.department,
+        prodigy_id: u.prodigy_id,
+        school: u.school,
+        standard: u.standard,
         phone: u.phone,
         email: u.email,
       }

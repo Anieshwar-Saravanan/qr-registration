@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { listUsers } from './api'
 import AddUserForm from './components/AddUserForm'
 import ImportPanel from './components/ImportPanel'
@@ -8,16 +8,13 @@ import EventsPanel from './components/EventsPanel'
 import RegistrationsPanel from './components/RegistrationsPanel'
 import TeamsPanel from './components/TeamsPanel'
 import WinnersPanel from './components/WinnersPanel'
-
-// html5-qrcode is ~350KB and only the Scan tab needs it. Loading it lazily
-// keeps the initial download small for phones on venue wifi.
-const ScannerPanel = lazy(() => import('./components/ScannerPanel'))
+import AddParticipants from './components/AddParticipants'
 
 const PAGE_SIZE = 50
 const TABS = [
-  { id: 'attendees', label: 'Attendees' },
+  { id: 'attendees', label: 'Students' },
   { id: 'events', label: 'Events' },
-  { id: 'scan', label: 'Scan' },
+  { id: 'winners', label: 'Winners' },
 ]
 
 export default function App() {
@@ -102,6 +99,8 @@ export default function App() {
           <div className="column">
             <AddUserForm onCreated={handleCreated} />
             <ImportPanel onImported={refresh} />
+          </div>
+          <div className="column">
             <UserList
               users={users}
               total={total}
@@ -113,7 +112,7 @@ export default function App() {
               onLoadMore={loadMore}
             />
           </div>
-          <QrPanel user={selected} />
+          <QrPanel user={selected} onClose={() => setSelected(null)} />
         </main>
       )}
 
@@ -125,22 +124,24 @@ export default function App() {
             <EventsPanel selectedId={event?.event_id} onSelect={setEvent} />
           </div>
           <div className="column">
+            <AddParticipants
+              event={event}
+              refreshKey={regKey}
+              onChanged={refreshRegistrations}
+            />
             <RegistrationsPanel
               event={event}
               refreshKey={regKey}
               onChanged={refreshRegistrations}
             />
             <TeamsPanel event={event} refreshKey={regKey} onChanged={refreshRegistrations} />
-            <WinnersPanel event={event} refreshKey={regKey} />
           </div>
         </main>
       )}
 
-      {tab === 'scan' && (
+      {tab === 'winners' && (
         <main className="layout single">
-          <Suspense fallback={<div className="card"><p className="muted">Loading scanner…</p></div>}>
-            <ScannerPanel event={event} onRegistered={refreshRegistrations} />
-          </Suspense>
+          <WinnersPanel event={event} refreshKey={regKey} />
         </main>
       )}
     </div>

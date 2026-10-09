@@ -3,6 +3,7 @@
 import csv
 import io
 import re
+from typing import Literal
 import uuid
 from datetime import datetime, timezone
 
@@ -16,6 +17,7 @@ from app.models import (
     EventStats,
     EventUpdate,
     ManualRegister,
+    RegistrationOut,
     RegistrationPage,
     RemoveRegistrations,
     TeamCreate,
@@ -23,6 +25,7 @@ from app.models import (
     WinnerOut,
     WinnersUpdate,
     ScanRequest,
+    ScoreUpdate,
     ScanResult,
     SyncRequest,
     SyncResult,
@@ -289,13 +292,13 @@ async def set_winners(event_id: str, payload: WinnersUpdate) -> list[WinnerOut]:
     if is_team_event:
         entries = await _team_winner_entries(event, payload)
     else:
-        entries = await _user_winner_entries(payload)
+        entries = await _user_winner_entries(event["event_id"], payload)
 
     await get_db().events.update_one({"event_id": event_id}, {"$set": {"winners": entries}})
     return [to_winner_out(w) for w in entries]
 
 
-async def _user_winner_entries(payload: WinnersUpdate) -> list[dict]:
+async def _user_winner_entries(event_id: str, payload: WinnersUpdate) -> list[dict]:
     ids = [w.user_id for w in payload.winners]
     if len(set(ids)) != len(ids):
         raise HTTPException(status_code=400, detail="The same person cannot win twice.")
@@ -310,6 +313,15 @@ async def _user_winner_entries(payload: WinnersUpdate) -> list[dict]:
             status_code=404, detail=f"{len(missing)} of those attendees no longer exist."
         )
 
+    # The score lives on the registration, not the attendee: the same student
+    # can compete in several events with a different score in each.
+    scores = {
+        doc["user_id"]: doc.get("score")
+        async for doc in get_db().registrations.find(
+            {"event_id": event_id, "user_id": {"$in": ids}}, {"user_id": 1, "score": 1}
+        )
+    }
+
     # Details are snapshotted alongside the id, so a results image stays true
     # to what was announced even if an attendee record is edited afterwards.
     return sorted(
@@ -317,6 +329,7 @@ async def _user_winner_entries(payload: WinnersUpdate) -> list[dict]:
             {
                 "rank": w.rank,
                 "user_id": w.user_id,
+                "score": scores.get(w.user_id),
                 **person_snapshot(users[w.user_id]),
             }
             for w in payload.winners
@@ -355,6 +368,7 @@ async def _team_winner_entries(event: dict, payload: WinnersUpdate) -> list[dict
         return {
             "team_id": team_id,
             "name": source["name"],
+            "score": source.get("score"),
             "members": [
                 {"user_id": m["user_id"], **person_snapshot(m)}
                 for m in source.get("members", [])
@@ -498,17 +512,49 @@ def _registration_filter(event_id: str, q: str | None) -> dict:
     query: dict = {"event_id": event_id}
     if q and q.strip():
         pattern = re.escape(q.strip())
-        query["$or"] = [
+        clauses = [
             {f"user_snapshot.{field}": {"$regex": pattern, "$options": "i"}}
-            for field in ("name", "roll_no", "domain", "position", "department", "email", "phone")
+            for field in ("name", "roll_no", "school", "email", "phone")
         ]
+        if q.strip().isdigit():
+            clauses.insert(0, {"user_snapshot.prodigy_id": int(q.strip())})
+        query["$or"] = clauses
     return query
+
+
+@router.patch("/{event_id}/registrations/{user_id}/score", response_model=RegistrationOut)
+async def set_registration_score(
+    event_id: str, user_id: str, payload: ScoreUpdate
+) -> RegistrationOut:
+    """Score one participant. A null score clears it."""
+    doc = await get_db().registrations.find_one_and_update(
+        {"event_id": event_id, "user_id": user_id},
+        {"$set": {"score": payload.score}},
+        return_document=True,
+    )
+    if doc is None:
+        raise HTTPException(status_code=404, detail="That person is not registered.")
+    return to_registration_out(doc)
+
+
+@router.patch("/{event_id}/teams/{team_id}/score", response_model=TeamOut)
+async def set_team_score(event_id: str, team_id: str, payload: ScoreUpdate) -> TeamOut:
+    """Score one team. A null score clears it."""
+    doc = await get_db().teams.find_one_and_update(
+        {"event_id": event_id, "team_id": team_id},
+        {"$set": {"score": payload.score}},
+        return_document=True,
+    )
+    if doc is None:
+        raise HTTPException(status_code=404, detail="No such team for this event.")
+    return to_team_out(doc)
 
 
 @router.get("/{event_id}/registrations", response_model=RegistrationPage)
 async def list_registrations(
     event_id: str,
     q: str | None = Query(default=None, max_length=120),
+    sort: Literal["registered_at", "score"] = Query(default="registered_at"),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> RegistrationPage:
@@ -516,8 +562,15 @@ async def list_registrations(
     db = get_db()
     query = _registration_filter(event_id, q)
 
+    # Sorting server-side rather than in the browser: the table is paged, so
+    # sorting only the rows already loaded would put the highest score on
+    # page 3 below a lower one on page 1.
+    #
+    # Mongo sorts null below every number on a descending sort, which is what
+    # we want - unscored competitors belong at the bottom, not the top.
+    order = [("score", -1), ("registered_at", -1)] if sort == "score" else [("registered_at", -1)]
     total = await db.registrations.count_documents(query)
-    cursor = db.registrations.find(query).sort("registered_at", -1).skip(offset).limit(limit)
+    cursor = db.registrations.find(query).sort(order).skip(offset).limit(limit)
 
     return RegistrationPage(
         items=[to_registration_out(doc) async for doc in cursor],
@@ -562,13 +615,13 @@ async def export_registrations(event_id: str, q: str | None = Query(default=None
     writer.writerow(
         [
             "Name",
+            "Prodigy ID",
             "Roll No",
-            "Domain",
-            "Position",
-            "Year",
-            "Department",
+            "School",
+            "Standard",
             "Phone Number",
             "Mail Id",
+            "Score",
             "Team",
             "Registered At",
             "Method",
@@ -585,13 +638,13 @@ async def export_registrations(event_id: str, q: str | None = Query(default=None
         writer.writerow(
             [
                 r.name,
+                r.prodigy_id or "",
                 r.roll_no,
-                r.domain or "",
-                r.position or "",
-                r.year or "",
-                r.department or "",
+                r.school or "",
+                r.standard or "",
                 r.phone or "",
                 r.email,
+                "" if r.score is None else r.score,
                 r.team_name or "",
                 r.registered_at.isoformat(timespec="seconds"),
                 r.method,

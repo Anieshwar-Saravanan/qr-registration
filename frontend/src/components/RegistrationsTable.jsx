@@ -1,4 +1,4 @@
-import { yearLabel } from '../lib/person'
+import { standardLabel } from '../lib/person'
 
 /** Tabulated attendees for one event, with row and bulk removal. */
 export default function RegistrationsTable({
@@ -9,6 +9,9 @@ export default function RegistrationsTable({
   onRemove,
   offset = 0,
   showTeam = false,
+  onScore,
+  sortedByScore = false,
+  onSortByScore,
 }) {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.user_id))
 
@@ -27,12 +30,19 @@ export default function RegistrationsTable({
               />
             </th>
             <th className="col-num">#</th>
+            <th>PID</th>
             <th>Name</th>
             <th>Roll No</th>
-            <th>Domain</th>
-            <th>Department</th>
-            <th>Year</th>
+            <th>School</th>
+            <th>Standard</th>
             {showTeam && <th>Team</th>}
+            {onScore && (
+              <th>
+                <button className="link-button sort-button" onClick={onSortByScore}>
+                  Score {sortedByScore ? '▼' : ''}
+                </button>
+              </th>
+            )}
             <th>Registered</th>
             <th>Method</th>
             <th className="col-action" />
@@ -50,11 +60,11 @@ export default function RegistrationsTable({
                 />
               </td>
               <td className="col-num">{offset + i + 1}</td>
+              <td className="cell-roll">{r.prodigy_id ?? '—'}</td>
               <td className="cell-name">{r.name}</td>
               <td className="cell-roll">{r.roll_no || '—'}</td>
-              <td className="cell-muted cell-wrap" title={r.domain || ''}>{r.domain || '—'}</td>
-              <td className="cell-muted cell-wrap" title={r.department || ''}>{r.department || '—'}</td>
-              <td className="cell-muted">{yearLabel(r.year) ?? '—'}</td>
+              <td className="cell-muted cell-wrap" title={r.school || ''}>{r.school || '—'}</td>
+              <td className="cell-muted">{standardLabel(r.standard) ?? '—'}</td>
               {showTeam && (
                 <td>
                   {r.team_name ? (
@@ -62,6 +72,30 @@ export default function RegistrationsTable({
                   ) : (
                     <span className="cell-muted">—</span>
                   )}
+                </td>
+              )}
+              {onScore && (
+                <td>
+                  <input
+                    // Keyed on the score so the box re-mounts when the value
+                    // changes underneath it - an uncontrolled defaultValue
+                    // would otherwise show a stale score after a reload or a
+                    // score entered on another laptop.
+                    key={r.score ?? ''}
+                    className="score-input"
+                    type="number"
+                    step="any"
+                    defaultValue={r.score ?? ''}
+                    // Saved on blur rather than per keystroke: one request per
+                    // score instead of one per digit.
+                    onBlur={(e) => {
+                      const raw = e.target.value.trim()
+                      const next = raw === '' ? null : Number(raw)
+                      if (next !== (r.score ?? null)) onScore(r, next)
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                    aria-label={`Score for ${r.name}`}
+                  />
                 </td>
               )}
               <td className="cell-muted" title={new Date(r.registered_at).toLocaleString()}>

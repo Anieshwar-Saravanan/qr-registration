@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { disbandTeam, listTeams } from '../api'
+import { disbandTeam, listTeams, setTeamScore } from '../api'
 import { personMeta } from '../lib/person'
 import { unmarkRegistered } from '../lib/roster'
 
@@ -47,6 +47,18 @@ export default function TeamsPanel({ event, refreshKey, onChanged }) {
     }
   }
 
+  async function handleScore(team, score) {
+    try {
+      const updated = await setTeamScore(event.event_id, team.team_id, score)
+      setTeams((prev) =>
+        prev.map((t) => (t.team_id === team.team_id ? { ...t, score: updated.score } : t)),
+      )
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   // Individual events have no teams; the panel simply does not apply.
   if (!event || event.event_type !== 'team') return null
 
@@ -65,7 +77,7 @@ export default function TeamsPanel({ event, refreshKey, onChanged }) {
       {note && <p className="ok-note">{note}</p>}
 
       {teams.length === 0 ? (
-        <p className="muted">No teams yet. Form one on the Scan tab.</p>
+        <p className="muted">No teams yet. Form one by scanning under Add participants.</p>
       ) : (
         <ul className="team-list">
           {teams.map((t) => (
@@ -73,6 +85,23 @@ export default function TeamsPanel({ event, refreshKey, onChanged }) {
               <div className="team-head">
                 <span className="team-name">{t.name}</span>
                 <span className="team-size">{t.size} members</span>
+                <input
+                  // Keyed on the score so the box re-mounts when the value
+                  // changes underneath it, e.g. after a reload.
+                  key={t.score ?? ''}
+                  className="score-input"
+                  type="number"
+                  step="any"
+                  placeholder="score"
+                  defaultValue={t.score ?? ''}
+                  onBlur={(e) => {
+                    const raw = e.target.value.trim()
+                    const next = raw === '' ? null : Number(raw)
+                    if (next !== (t.score ?? null)) handleScore(t, next)
+                  }}
+                  onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                  aria-label={`Score for ${t.name}`}
+                />
                 <button className="remove-btn" onClick={() => handleDisband(t)} disabled={busy}>
                   Disband
                 </button>

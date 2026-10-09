@@ -35,8 +35,8 @@ def build_payload(user: dict) -> str:
     # Only the fields printed on the badge ride along as display hints. The
     # rest stay out: every byte is a denser QR and a harder scan, and the
     # roster cache already gives an offline scanner the full record.
-    if user.get("domain"):
-        payload["domain"] = user["domain"]
+    if user.get("prodigy_id") is not None:
+        payload["pid"] = user["prodigy_id"]
 
     # separators=(",", ":") keeps the payload compact; every byte saved is a
     # less dense QR and an easier scan from a phone at arm's length.

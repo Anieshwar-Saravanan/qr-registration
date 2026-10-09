@@ -639,8 +639,8 @@ button.danger:hover { background: #b91c1c; }
   .layout-events { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Long domains and department names would otherwise push Method and Remove
-   off the visible width, so they truncate with the full value in a tooltip. */
+/* Long school names would otherwise push Method and Remove off the visible
+   width, so they truncate with the full value in a tooltip. */
 .reg-table .cell-wrap {
   max-width: 130px;
   overflow: hidden;
@@ -721,6 +721,70 @@ button.danger:hover { background: #b91c1c; }
   font-size: 13px;
   font-weight: 400;
 }
+
+.reg-table tr.clickable { cursor: pointer; }
+.reg-table tr.clickable:hover { background: var(--bg); }
+
+/* Native <dialog>: the backdrop, Escape-to-close and focus trapping come for
+   free, so there is no modal library here. */
+.qr-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+.qr-dialog::backdrop { background: rgb(15 23 42 / 0.45); }
+.qr-dialog .qr-image { width: 100%; height: auto; }
+
+/* Mode switch on the Add participants card. */
+.mode-switch { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+.chip-button {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 20px;
+}
+.chip-button:hover { color: var(--text); }
+.chip-button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.inline-form { display: flex; gap: 8px; align-items: flex-start; }
+.inline-form input { margin-top: 0; }
+.inline-form button { flex: none; }
+
+.scan-embedded { margin-top: 4px; }
+
+.pid-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: #eff6ff;
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+
+.score-input {
+  width: 72px;
+  margin-top: 0;
+  padding: 5px 8px;
+  font-size: 13px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sort-button { text-decoration: none; font-weight: 700; font-size: inherit; color: inherit; }
+
+.top-n-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.top-n-row .hint { margin: 0; }
+.top-n-row .score-input { width: 64px; }
+
+/* Fixed, not absolute: the row lives in a horizontally scrolling table and
+   an absolutely-positioned menu would be clipped by that overflow. */
+.context-menu { position: fixed; }
 
 .winner-preview { margin-top: 4px; }
 

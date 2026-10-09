@@ -90,8 +90,8 @@ export default function ImportPanel({ onImported }) {
       />
       <p className="hint">
         CSV or XLSX. Needs a <strong>name</strong> column and a <strong>roll no</strong>{' '}
-        column; domain, position, year, department, phone and mail id are picked up when
-        present. “Full Name”, “Register Number”, “Yr of Study”, “Branch”, “Mobile No” and
+        column; Prodigy ID, school, standard, phone and mail id are picked up when present.
+        “Full Name”, “PID”, “Register Number”, “School Name”, “Class”, “Mobile No” and
         “Mail Id” are all recognised.
       </p>
 

@@ -137,14 +137,32 @@ export const manualRegister = (eventId, userId, deviceId, teamId = null) =>
     body: JSON.stringify({ user_id: userId, device_id: deviceId, team_id: teamId }),
   })
 
+/** Set or clear one competitor's score. `null` clears it. */
+export const setRegistrationScore = (eventId, userId, score) =>
+  request(`/api/events/${eventId}/registrations/${userId}/score`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ score }),
+  })
+
+export const setTeamScore = (eventId, teamId, score) =>
+  request(`/api/events/${eventId}/teams/${teamId}/score`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ score }),
+  })
+
 export async function undoRegistration(eventId, userId) {
   const res = await fetch(apiUrl(`/api/events/${eventId}/registrations/${userId}`), { method: 'DELETE' })
   if (!res.ok && res.status !== 204) throw new Error(`Could not undo (${res.status})`)
 }
 
-export function listRegistrations(eventId, { q = '', limit = 50, offset = 0 } = {}) {
+export function listRegistrations(eventId, { q = '', sort = '', limit = 50, offset = 0 } = {}) {
   const params = new URLSearchParams({ limit, offset })
   if (q.trim()) params.set('q', q.trim())
+  // Server-side, because the table is paged: sorting only the loaded rows
+  // would hide the top score on page 3.
+  if (sort) params.set('sort', sort)
   return request(`/api/events/${eventId}/registrations?${params}`)
 }
 

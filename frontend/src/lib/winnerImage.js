@@ -23,11 +23,12 @@ const SCALE = 3
 // dropping a column never leaves the layout inconsistent.
 const COLUMNS = [
   { key: 'rank', label: '#', width: 58, align: 'center' },
-  { key: 'name', label: 'Name', width: 205, bold: true },
-  { key: 'roll_no', label: 'Roll No', width: 115 },
-  { key: 'domain', label: 'Domain', width: 175 },
-  { key: 'department', label: 'Department', width: 140 },
-  { key: 'phone', label: 'Phone', width: 130 },
+  { key: 'prodigy_id', label: 'PID', width: 65 },
+  { key: 'name', label: 'Name', width: 195, bold: true },
+  { key: 'roll_no', label: 'Roll No', width: 100 },
+  { key: 'school', label: 'School', width: 200 },
+  { key: 'standard', label: 'Std', width: 55 },
+  { key: 'score', label: 'Score', width: 75 },
 ]
 
 const TABLE_W = COLUMNS.reduce((sum, c) => sum + c.width, 0)
@@ -118,7 +119,10 @@ function drawPersonCells(ctx, person, y, indent = 0) {
   }
 }
 
-export function renderWinnersImage(event, winners) {
+/** `label` retitles the sheet: a "top 8 go through to round 2" shortlist is
+ *  not a winners list, and sending one out headed WINNERS misleads everyone
+ *  who reads it. */
+export function renderWinnersImage(event, winners, { label } = {}) {
   const teamMode = isTeamWinners(winners)
   const height = HEADER_H + THEAD_H + bodyHeight(winners, teamMode) + FOOTER_H
   const canvas = document.createElement('canvas')
@@ -140,7 +144,7 @@ export function renderWinnersImage(event, winners) {
   ctx.fillStyle = '#f5b301'
   ctx.font = font('700 12px')
   if ('letterSpacing' in ctx) ctx.letterSpacing = '2.5px'
-  ctx.fillText(teamMode ? 'WINNING TEAMS' : 'WINNERS', PAD, 38)
+  ctx.fillText((label || (teamMode ? 'WINNING TEAMS' : 'WINNERS')).toUpperCase(), PAD, 38)
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px'
 
   ctx.fillStyle = '#ffffff'
@@ -196,7 +200,9 @@ export function renderWinnersImage(event, winners) {
       const headMid = y + TEAM_ROW_H / 2
       drawRank(ctx, w.rank, PAD + COLUMNS[0].width / 2, headMid)
 
-      const countText = `${members.length} ${members.length === 1 ? 'member' : 'members'}`
+      const countText =
+        (w.score != null ? `${w.score} pts  ·  ` : '') +
+        `${members.length} ${members.length === 1 ? 'member' : 'members'}`
       ctx.font = font('400 12px')
       const countW = ctx.measureText(countText).width
       ctx.fillStyle = FAINT
@@ -249,9 +255,10 @@ export function renderWinnersImage(event, winners) {
   const people = teamMode
     ? winners.reduce((sum, w) => sum + (w.members?.length ?? 0), 0)
     : winners.length
+  const noun = label ? (teamMode ? 'teams' : 'participants') : teamMode ? 'teams' : 'winners'
   const summary = teamMode
-    ? `${winners.length} ${winners.length === 1 ? 'team' : 'teams'}  ·  ${people} ${people === 1 ? 'member' : 'members'}`
-    : `${winners.length} ${winners.length === 1 ? 'winner' : 'winners'}`
+    ? `${winners.length} ${winners.length === 1 ? noun.replace(/s$/, '') : noun}  ·  ${people} ${people === 1 ? 'member' : 'members'}`
+    : `${winners.length} ${winners.length === 1 ? noun.replace(/s$/, '') : noun}`
 
   ctx.fillStyle = FAINT
   ctx.font = font('400 11.5px')
@@ -262,8 +269,8 @@ export function renderWinnersImage(event, winners) {
 }
 
 /** Render and hand the PNG to the browser as a download. */
-export async function downloadWinnersImage(event, winners) {
-  const canvas = renderWinnersImage(event, winners)
+export async function downloadWinnersImage(event, winners, opts) {
+  const canvas = renderWinnersImage(event, winners, opts)
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
   if (!blob) throw new Error('Could not produce the image.')
 
@@ -271,7 +278,8 @@ export async function downloadWinnersImage(event, winners) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${slug || 'event'}-winners.png`
+  const what = opts?.label ? opts.label.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase() : 'winners'
+  a.download = `${slug || 'event'}-${what}.png`
   document.body.appendChild(a)
   a.click()
   a.remove()

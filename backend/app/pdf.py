@@ -1,6 +1,6 @@
 """Printable badge sheets: 16 QR codes per A4 page, with the details below each.
 
-Each badge carries the person's name, roll number and domain under the QR, so
+Each badge carries the student's name, Prodigy ID and school under the QR, so
 a volunteer can hand the right badge to the right person without scanning it
 first. Laid out as a 4x4 grid with cut guides, so a sheet can be printed and
 sliced into 16 badges.
@@ -32,17 +32,17 @@ LINE_GAP = 3.5 * mm  # between the QR and the first line of text
 # here is enough: the block height and every baseline are derived from this,
 # so the badge stays centred in its cell either way.
 BADGE_LINES = (
-    # field,     font,                size, grey
-    ("name", "Helvetica-Bold", 9.5, 0.0),
-    ("roll_no", "Helvetica-Bold", 8.5, 0.35),
-    ("domain", "Helvetica", 7.5, 0.5),
+    # field,       font,              size, grey, prefix
+    ("name", "Helvetica-Bold", 9.5, 0.0, ""),
+    ("prodigy_id", "Helvetica-Bold", 8.5, 0.35, "PID "),
+    ("school", "Helvetica", 7.5, 0.5, ""),
 )
 
 # Leading as a multiple of font size. 1.45 keeps three short lines legible
 # without the block drifting into the badge below it.
 LEADING = 1.45
 
-TEXT_BLOCK_H = sum(size * LEADING for _, _, size, _ in BADGE_LINES)
+TEXT_BLOCK_H = sum(size * LEADING for _, _, size, _, _ in BADGE_LINES)
 
 # QR + gap + the text block. Used to centre the badge in its cell rather than
 # letting it sit at the top with dead space beneath.
@@ -52,8 +52,8 @@ CONTENT_H = QR_SIZE + LINE_GAP + TEXT_BLOCK_H
 def _fit(text: str, font: str, size: float, max_width: float) -> str:
     """Shorten text with an ellipsis until it fits the cell width.
 
-    Long domain names are common ("Artificial Intelligence and Data Science"),
-    and an overflowing badge looks broken rather than full.
+    Long school names are common ("Jawaharlal Nehru Memorial Higher Secondary
+    School"), and an overflowing badge looks broken rather than full.
     """
     if stringWidth(text, font, size) <= max_width:
         return text
@@ -111,15 +111,15 @@ def _draw_badge(c: canvas.Canvas, user: dict, index_on_page: int) -> None:
     centre = cell_x + CELL_W / 2
 
     # The baseline walks down the block a full line at a time whether or not
-    # the line has a value, so a person with no domain still gets a badge
+    # the line has a value, so a student with no school still gets a badge
     # laid out identically to everyone else's on the sheet.
     baseline = qr_y - LINE_GAP
-    for field, font, size, grey in BADGE_LINES:
+    for field, font, size, grey, prefix in BADGE_LINES:
         baseline -= size * LEADING
         value = user.get(field)
         if value is None or value == "":
             continue
-        text = _fit(_sanitize(str(value)), font, size, text_width)
+        text = _fit(_sanitize(f"{prefix}{value}"), font, size, text_width)
         c.setFont(font, size)
         c.setFillColorRGB(grey, grey, grey)
         c.drawCentredString(centre, baseline, text)
