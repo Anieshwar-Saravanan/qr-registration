@@ -107,16 +107,7 @@ function EventFields({ form, setForm }) {
         </div>
       )}
 
-      <label>
-        Capacity (optional)
-        <input
-          type="number"
-          min="1"
-          value={form.capacity}
-          onChange={(e) => setForm({ ...form, capacity: e.target.value })}
-          placeholder="Leave blank for unlimited"
-        />
-      </label>
+      
     </>
   )
 }
