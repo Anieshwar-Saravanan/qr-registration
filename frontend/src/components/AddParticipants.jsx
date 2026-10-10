@@ -201,6 +201,15 @@ export default function AddParticipants({ event, refreshKey, onChanged }) {
           <button
             key={id}
             className={mode === id ? 'chip-button on' : 'chip-button'}
+            // The scanner keeps its own team buffer. Allowing both at once
+            // would mean two half-formed teams and no way to tell which one
+            // a given person went into.
+            disabled={collecting && id === 'scan'}
+            title={
+              collecting && id === 'scan'
+                ? 'Finish or cancel this team first — the scanner forms teams its own way.'
+                : undefined
+            }
             onClick={() => setMode(id)}
           >
             {label}

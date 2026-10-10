@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { disbandTeam, listTeams, setTeamScore } from '../api'
+import { disbandTeam, listTeams, removeTeamMember, setTeamScore } from '../api'
 import { personMeta } from '../lib/person'
 import { unmarkRegistered } from '../lib/roster'
 
@@ -38,6 +38,40 @@ export default function TeamsPanel({ event, refreshKey, onChanged }) {
       // forget them too - otherwise it refuses to scan them into a new one.
       await unmarkRegistered(event.event_id, team.members.map((m) => m.user_id))
       setNote(`Disbanded ${team.name}.`)
+      await load()
+      onChanged?.()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRemoveMember(team, member) {
+    const last = team.size <= 1
+    const warning = last
+      ? `\n\n“${team.name}” has nobody else, so the team will be removed too.`
+      : event.team_size_min && team.size - 1 < event.team_size_min
+        ? `\n\nThat leaves ${team.size - 1}, below the minimum of ${event.team_size_min}.`
+        : ''
+    if (
+      !confirm(
+        `Take ${member.name} off “${team.name}”?\n\nThey lose their registration for this event and can be added again.${warning}`,
+      )
+    )
+      return
+    setBusy(true)
+    setNote(null)
+    try {
+      const res = await removeTeamMember(event.event_id, team.team_id, member.user_id)
+      // Their registration went with the membership, so the scanner has to
+      // forget them or it refuses to scan them into a new team.
+      await unmarkRegistered(event.event_id, [member.user_id])
+      setNote(
+        res.disbanded
+          ? `Removed ${member.name}; “${team.name}” had nobody left and was removed.`
+          : `Removed ${member.name} from ${team.name}.`,
+      )
       await load()
       onChanged?.()
     } catch (err) {
@@ -106,14 +140,28 @@ export default function TeamsPanel({ event, refreshKey, onChanged }) {
                   Disband
                 </button>
               </div>
-              <ol className="team-members">
+              <ol className="team-members editable">
                 {t.members.map((m) => (
                   <li key={m.user_id}>
-                    {m.name}
-                    {personMeta(m) && <span className="user-meta"> · {personMeta(m)}</span>}
+                    <span className="member-name">
+                      {m.name}
+                      {m.prodigy_id != null && <span className="pid-tag">PID {m.prodigy_id}</span>}
+                      {personMeta(m) && <span className="user-meta"> · {personMeta(m)}</span>}
+                    </span>
+                    <button
+                      className="link-button"
+                      onClick={() => handleRemoveMember(t, m)}
+                      disabled={busy}
+                      title={`Take ${m.name} off ${t.name}`}
+                    >
+                      remove
+                    </button>
                   </li>
                 ))}
               </ol>
+              <p className="hint">
+                To add somebody, pick “{t.name}” in Add participants above.
+              </p>
               {t.renamed_from && (
                 <p className="hint">
                   Saved as “{t.name}” — “{t.renamed_from}” was already taken.

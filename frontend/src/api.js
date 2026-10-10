@@ -252,6 +252,11 @@ export const createTeam = (eventId, body) =>
     body: JSON.stringify(body),
   })
 
+/** Takes one person off a team and un-registers them. Returns
+ *  { disbanded, team } - the team is null once it has nobody left. */
+export const removeTeamMember = (eventId, teamId, userId) =>
+  request(`/api/events/${eventId}/teams/${teamId}/members/${userId}`, { method: 'DELETE' })
+
 export async function disbandTeam(eventId, teamId) {
   const res = await fetch(apiUrl(`/api/events/${eventId}/teams/${teamId}`), { method: 'DELETE' })
   if (!res.ok && res.status !== 204) {

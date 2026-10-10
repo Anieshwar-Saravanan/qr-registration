@@ -239,6 +239,64 @@ async def create_event_team(event_id: str, payload: TeamCreate) -> TeamOut:
     return to_team_out(team)
 
 
+async def _detach_from_teams(db, event_id: str, user_ids: list[str]) -> list[str]:
+    """Pull people out of whatever team they were in, for this event.
+
+    Deleting a registration without this leaves them listed as a team member
+    but not registered - the Teams panel would show somebody the roster does
+    not. Every path that un-registers someone goes through here so the two
+    views cannot disagree.
+
+    Returns the names of any teams that were emptied and removed.
+    """
+    teams = db.teams
+    await teams.update_many(
+        {"event_id": event_id, "members.user_id": {"$in": user_ids}},
+        {"$pull": {"members": {"user_id": {"$in": user_ids}}}},
+    )
+    # `size` is recomputed from the array rather than decremented: one
+    # update_many can remove a different number of members from each team.
+    await teams.update_many(
+        {"event_id": event_id}, [{"$set": {"size": {"$size": "$members"}}}]
+    )
+    emptied = [
+        doc["name"]
+        async for doc in teams.find({"event_id": event_id, "size": {"$lte": 0}}, {"name": 1})
+    ]
+    if emptied:
+        await teams.delete_many({"event_id": event_id, "size": {"$lte": 0}})
+    return emptied
+
+
+@router.delete("/{event_id}/teams/{team_id}/members/{user_id}")
+async def remove_team_member(event_id: str, team_id: str, user_id: str) -> dict:
+    """Take one person off a team and un-register them from the event.
+
+    On a team event a registration only exists as part of a team, so leaving
+    them registered but team-less would put a row on the roster that the
+    Teams panel cannot explain. A team emptied this way is removed.
+
+    The size minimum is deliberately not enforced: a team is often short for a
+    minute in the middle of being corrected, and refusing the first removal
+    would mean disbanding and rebuilding it instead.
+    """
+    db = get_db()
+    team = await db.teams.find_one({"event_id": event_id, "team_id": team_id})
+    if team is None:
+        raise HTTPException(status_code=404, detail="No such team for this event.")
+    if not any(m["user_id"] == user_id for m in team.get("members", [])):
+        raise HTTPException(status_code=404, detail="They are not on that team.")
+
+    await db.registrations.delete_one({"event_id": event_id, "user_id": user_id})
+    emptied = await _detach_from_teams(db, event_id, [user_id])
+
+    updated = await db.teams.find_one({"event_id": event_id, "team_id": team_id})
+    return {
+        "disbanded": bool(emptied),
+        "team": to_team_out(updated) if updated else None,
+    }
+
+
 @router.delete("/{event_id}/teams/{team_id}", status_code=204)
 async def disband_team(event_id: str, team_id: str) -> Response:
     """Remove a team and un-register its members from the event."""
@@ -489,11 +547,11 @@ async def manual_register(event_id: str, payload: ManualRegister) -> ScanResult:
 @router.delete("/{event_id}/registrations/{user_id}", status_code=204)
 async def undo_registration(event_id: str, user_id: str) -> Response:
     """Undo a mis-scan. Someone will scan the wrong person; this fixes it."""
-    result = await get_db().registrations.delete_one(
-        {"event_id": event_id, "user_id": user_id}
-    )
+    db = get_db()
+    result = await db.registrations.delete_one({"event_id": event_id, "user_id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="That person is not registered.")
+    await _detach_from_teams(db, event_id, [user_id])
     return Response(status_code=204)
 
 
@@ -505,10 +563,16 @@ async def remove_registrations(event_id: str, payload: RemoveRegistrations) -> d
     round trip rather than one per person when clearing a batch.
     """
     await _find_event_or_404(event_id)
-    result = await get_db().registrations.delete_many(
+    db = get_db()
+    result = await db.registrations.delete_many(
         {"event_id": event_id, "user_id": {"$in": payload.user_ids}}
     )
-    return {"removed": result.deleted_count, "requested": len(payload.user_ids)}
+    emptied = await _detach_from_teams(db, event_id, payload.user_ids)
+    return {
+        "removed": result.deleted_count,
+        "requested": len(payload.user_ids),
+        "teams_removed": emptied,
+    }
 
 
 # --------------------------------------------------------------------------

@@ -750,7 +750,8 @@ button.danger:hover { background: #b91c1c; }
   padding: 5px 10px;
   border-radius: 20px;
 }
-.chip-button:hover { color: var(--text); }
+.chip-button:hover:not(:disabled) { color: var(--text); }
+.chip-button:disabled { opacity: 0.45; cursor: not-allowed; }
 .chip-button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .inline-form { display: flex; gap: 8px; align-items: flex-start; }
@@ -773,6 +774,13 @@ button.danger:hover { background: #b91c1c; }
 .team-buffer .team-members { margin: 8px 0; }
 .team-buffer .team-members li { display: flex; align-items: center; gap: 6px; }
 .team-buffer .button-row { margin-top: 10px; }
+
+.team-members.editable li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.team-members.editable .member-name { flex: 1; min-width: 0; }
 
 .pid-tag {
   margin-left: 6px;
