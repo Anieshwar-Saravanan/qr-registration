@@ -1,14 +1,31 @@
-import { useState } from 'react'
-import { createUser } from '../api'
+import { useEffect, useState } from 'react'
+import { createUser, listSchools } from '../api'
 import { STANDARD_OPTIONS, standardLabel } from '../lib/person'
 
-const EMPTY = { name: '', prodigy_id: '', roll_no: '', school: '', standard: '', phone: '', email: '' }
+const EMPTY = {
+  name: '',
+  prodigy_id: '',
+  roll_no: '',
+  school_id: '',
+  school: '',
+  standard: '',
+  phone: '',
+  email: '',
+}
+
+// Marks the free-text escape hatch in the dropdown. Not a school id.
+const OTHER = 'other'
 
 export default function AddUserForm({ onCreated, embedded = false }) {
   const [form, setForm] = useState(EMPTY)
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
   const [added, setAdded] = useState(null)
+  const [schools, setSchools] = useState([])
+
+  useEffect(() => {
+    listSchools().then(setSchools).catch(() => setSchools([]))
+  }, [])
 
   const update = (field) => (e) => {
     setForm({ ...form, [field]: e.target.value })
@@ -28,11 +45,15 @@ export default function AddUserForm({ onCreated, embedded = false }) {
       // Optional fields go as null rather than "", so a blank stays absent
       // from the record instead of being stored as an empty string.
       const blank = (v) => v.trim() || null
+      const listed = form.school_id && form.school_id !== OTHER
       const created = await createUser({
         name: form.name.trim(),
         roll_no: form.roll_no.trim(),
         prodigy_id: form.prodigy_id ? Number(form.prodigy_id) : null,
-        school: blank(form.school),
+        school_id: listed ? Number(form.school_id) : null,
+        // Only "Other" carries a typed name; a listed school is named by the
+        // backend from its id, so twelve spellings cannot accumulate.
+        school: listed ? null : blank(form.school),
         standard: form.standard ? Number(form.standard) : null,
         phone: blank(form.phone),
         email: blank(form.email),
@@ -40,7 +61,12 @@ export default function AddUserForm({ onCreated, embedded = false }) {
       // School and standard are kept: a whole school is usually entered in one
       // sitting, so clearing them would mean retyping the same two values for
       // every student.
-      setForm({ ...EMPTY, school: form.school, standard: form.standard })
+      setForm({
+        ...EMPTY,
+        school_id: form.school_id,
+        school: form.school,
+        standard: form.standard,
+      })
       setAdded(created)
       onCreated(created)
     } catch (err) {
@@ -65,7 +91,7 @@ export default function AddUserForm({ onCreated, embedded = false }) {
             min="1"
             value={form.prodigy_id}
             onChange={update('prodigy_id')}
-            placeholder="1"
+            placeholder="auto"
           />
         </label>
         <label>
@@ -73,10 +99,31 @@ export default function AddUserForm({ onCreated, embedded = false }) {
           <input value={form.roll_no} onChange={update('roll_no')} required placeholder="9A01" />
         </label>
       </div>
+      <p className="hint">
+        Leave the Prodigy ID blank and it is generated from the school and standard.
+      </p>
       <label>
         School
-        <input value={form.school} onChange={update('school')} placeholder="DAV Public School" />
+        <select value={form.school_id} onChange={update('school_id')}>
+          <option value="">—</option>
+          {schools.map((s) => (
+            <option key={s.school_id} value={s.school_id}>
+              {s.school_id} · {s.name}
+            </option>
+          ))}
+          <option value={OTHER}>Other (not listed)</option>
+        </select>
       </label>
+      {form.school_id === OTHER && (
+        <label>
+          School name
+          <input
+            value={form.school}
+            onChange={update('school')}
+            placeholder="Name of the school"
+          />
+        </label>
+      )}
       <div className="field-row">
         <label>
           Standard

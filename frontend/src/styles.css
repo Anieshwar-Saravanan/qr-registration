@@ -174,7 +174,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   margin-bottom: 12px;
 }
 .field-row label { margin: 0; }
-.field-row select {
+form select {
   display: block;
   width: 100%;
   margin-top: 5px;
@@ -185,7 +185,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   border: 1px solid var(--border);
   border-radius: 7px;
 }
-.field-row select:focus {
+form select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgb(37 99 235 / 0.12);

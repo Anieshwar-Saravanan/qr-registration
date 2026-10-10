@@ -54,6 +54,10 @@ export function listUsers({ q = '', limit = 50, offset = 0 } = {}) {
   return request(`/api/users?${params}`)
 }
 
+/** The participating schools, served by the backend so the list lives in one
+ *  place rather than being duplicated here. */
+export const listSchools = () => request('/api/users/schools')
+
 export const createUser = (user) =>
   request('/api/users', {
     method: 'POST',

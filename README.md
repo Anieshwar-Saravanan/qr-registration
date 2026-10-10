@@ -476,19 +476,44 @@ available on the M0 tier and is the upgrade path.
 
 ```
 { _id, user_id (uuid4), name, roll_no, prodigy_id,
-  school, standard, phone, email, created_at }
+  school_id, school, standard, phone, email, created_at }
 ```
 
-**The Prodigy ID is typed in, not generated.** It is optional and unique, via a
-**partial** index (`{prodigy_id: {$type: "number"}}`): a plain unique index
-treats every missing value as the same one, so the second student left without
-a PID would be rejected. Import preview checks it alongside the roll number —
-letting a clash through would mean a row that looks importable and then dies on
-the index.
+**The Prodigy ID encodes the school and the class.** Format
+`<school id, 2 digits><class><serial, 3 digits>`, stored as a number:
 
-**Name and roll no are the only required fields.** Everything else is optional,
-so a patchy spreadsheet column does not reject otherwise-good rows — a blank
-renders as an em dash rather than blocking the import.
+```
+school 2,  class 9,  1st student  ->  029 001  ->    29001
+school 2,  class 10, 1st student  ->  0210 001 ->   210001
+school 13, class 12, 1st student  ->  1312 001 ->  1312001
+```
+
+Stored as an int, so the school's leading zero is lost. That is only safe
+because school ids stop at 13 and classes start at 9 — no two valid
+combinations collide. `backend/test_prodigy_ids.py` proves it by brute force
+over all 47,952 combinations rather than by argument, and will fail the moment
+a school id above 13 is added.
+
+The serial counts **within a school and class**, so every class at every school
+starts again at 001. Each pair has its own counter document, bumped with a
+single atomic `$inc` — "read the highest, add one" would hand the same number
+to two operators adding a student at the same moment. A bulk import takes one
+reservation per school+class group, not one per row.
+
+Leaving the field blank generates one; typing one keeps it and pushes that
+group's counter past it, so auto-assignment never walks into a hand-typed id
+later. A counter seeds itself from the highest stored id the first time it is
+used, which covers a restored backup or a spreadsheet that carried its own ids.
+
+**No school or no standard means no Prodigy ID.** The id encodes both, so a
+student from an unlisted school ("Other") or with no class recorded simply does
+not get one — better than inventing a number that contradicts their record.
+
+The twelve participating schools live in `backend/app/schools.py` and are served
+at `GET /api/users/schools`, so the frontend dropdown is not a second copy of
+the list. A spreadsheet carrying school *names* has them matched back to ids
+with punctuation and case ignored; once a row has an id, the stored name is the
+canonical one, so twelve spellings of the same school cannot accumulate.
 
 **The roll number is the identity.** It is the unique index, what import
 duplicate-detection keys on, and what a 409 names. It is stored upper-cased

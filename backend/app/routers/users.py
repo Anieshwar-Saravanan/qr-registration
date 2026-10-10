@@ -11,8 +11,9 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pymongo.errors import BulkWriteError, DuplicateKeyError
 
-from app.db import get_db
+from app.db import claim_prodigy_ids, get_db, reserve_prodigy_id
 from app.importer import parse_rows, read_table
+from app.schools import SCHOOLS
 from app.models import (
     BadgeRequest,
     BulkCreate,
@@ -20,6 +21,7 @@ from app.models import (
     ImportPreview,
     UserCreate,
     UserOut,
+    SchoolOut,
     UserPage,
     to_user_out,
 )
@@ -86,9 +88,38 @@ async def _find_user_or_404(user_id: str) -> dict:
 # CRUD + search
 # --------------------------------------------------------------------------
 
+@router.get("/schools", response_model=list[SchoolOut])
+async def list_schools() -> list[SchoolOut]:
+    """The participating schools. Served rather than duplicated in the
+    frontend, so adding a school means editing one file."""
+    return [SchoolOut(school_id=i, name=n) for i, n in sorted(SCHOOLS.items())]
+
+
+async def _assign_prodigy_id(db, doc: dict) -> None:
+    """Fill in a Prodigy ID, or leave it blank when one cannot be built.
+
+    The id encodes the school and the class, so a student from an unlisted
+    school ("Other") or with no standard recorded simply does not get one -
+    better than inventing a number that contradicts the rest of their record.
+    """
+    school_id, standard = doc.get("school_id"), doc.get("standard")
+    if doc["prodigy_id"] is not None:
+        if school_id is not None and standard is not None:
+            await reserve_prodigy_id(db, school_id, standard, doc["prodigy_id"])
+        return
+    if school_id is None or standard is None:
+        return
+    doc["prodigy_id"] = (await claim_prodigy_ids(db, school_id, standard, 1))[0]
+
+
 @router.post("", response_model=UserOut, status_code=201)
 async def create_user(payload: UserCreate) -> UserOut:
+    db = get_db()
     doc = _new_user_doc(payload)
+    try:
+        await _assign_prodigy_id(db, doc)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     try:
         await get_db().users.insert_one(doc)
     except DuplicateKeyError:
@@ -186,7 +217,27 @@ async def preview_import(file: UploadFile = File(...)) -> ImportPreview:
 @router.post("/bulk", response_model=BulkResult, status_code=201)
 async def bulk_create(payload: BulkCreate) -> BulkResult:
     """Insert many users at once, skipping any whose roll no already exists."""
+    db = get_db()
     docs = [_new_user_doc(u) for u in payload.users]
+
+    # Hand-typed ids first, so each school+class counter is already past them
+    # before it hands anything out.
+    for doc in docs:
+        if doc["prodigy_id"] is not None and doc.get("school_id") and doc.get("standard"):
+            await reserve_prodigy_id(db, doc["school_id"], doc["standard"], doc["prodigy_id"])
+
+    # One reservation per school+class group rather than one per row.
+    groups: dict[tuple[int, int], list[dict]] = {}
+    for doc in docs:
+        if doc["prodigy_id"] is None and doc.get("school_id") and doc.get("standard"):
+            groups.setdefault((doc["school_id"], doc["standard"]), []).append(doc)
+    for (school_id, standard), members in groups.items():
+        try:
+            ids = await claim_prodigy_ids(db, school_id, standard, len(members))
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        for doc, pid in zip(members, ids):
+            doc["prodigy_id"] = pid
 
     try:
         # ordered=False: one duplicate must not abort the remaining inserts,

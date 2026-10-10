@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
+from app.schools import SCHOOLS, school_id_for
+
 
 # School students only, so the form offers these four and nothing else.
 STANDARD_MIN, STANDARD_MAX = 9, 12
@@ -27,6 +29,9 @@ class UserCreate(BaseModel):
     # Typed in by hand for now. Optional, but unique when given - the index is
     # partial, so any number of students can be left without one.
     prodigy_id: int | None = Field(default=None, ge=1)
+    # One of the listed schools, or None for "Other" - which is allowed, but
+    # means no Prodigy ID can be generated, since the id encodes the school.
+    school_id: int | None = None
     school: str | None = Field(default=None, max_length=160)
     standard: int | None = Field(default=None, ge=STANDARD_MIN, le=STANDARD_MAX)
     phone: str | None = Field(default=None, max_length=32)
@@ -61,7 +66,7 @@ class UserCreate(BaseModel):
         text = str(v).strip().lower()
         return text or None
 
-    @field_validator("prodigy_id", "standard", mode="before")
+    @field_validator("prodigy_id", "standard", "school_id", mode="before")
     @classmethod
     def blank_number_to_none(cls, v: object) -> object:
         """Accept what a spreadsheet actually holds: 9, "9", "9th", "Class 9"."""
@@ -82,17 +87,39 @@ class UserCreate(BaseModel):
             return None
         return v.strip() or None
 
+    @model_validator(mode="after")
+    def resolve_school(self):
+        """Tie the school id and name together.
+
+        A spreadsheet usually carries only the name, so the name is matched
+        back to an id. Once there is an id, the stored name is the canonical
+        one - otherwise twelve spellings of the same school accumulate.
+        """
+        if self.school_id is None:
+            self.school_id = school_id_for(self.school)
+        if self.school_id is not None:
+            if self.school_id not in SCHOOLS:
+                raise ValueError(f"{self.school_id} is not one of the listed schools.")
+            self.school = SCHOOLS[self.school_id]
+        return self
+
 
 class UserOut(BaseModel):
     user_id: str
     name: str
     roll_no: str
     prodigy_id: int | None = None
+    school_id: int | None = None
     school: str | None = None
     standard: int | None = None
     phone: str | None = None
     email: EmailStr | None = None
     created_at: datetime
+
+
+class SchoolOut(BaseModel):
+    school_id: int
+    name: str
 
 
 class UserPage(BaseModel):

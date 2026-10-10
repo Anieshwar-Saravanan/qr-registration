@@ -6,12 +6,13 @@ which is the first thing that falls over under load.
 """
 
 import certifi
-from pymongo import AsyncMongoClient
+from pymongo import AsyncMongoClient, ReturnDocument
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import OperationFailure
 
 from app.config import DB_NAME, MONGO_URL
+from app.schools import build_prodigy_id, serial_of
 
 _client: AsyncMongoClient | None = None
 
@@ -32,6 +33,70 @@ def get_db() -> AsyncDatabase:
     if _client is None:
         raise RuntimeError("Database not connected. Did the app lifespan run?")
     return _client[DB_NAME]
+
+
+def _counter_key(school_id: int, standard: int) -> str:
+    return f"pid:{school_id:02d}:{standard}"
+
+
+async def _highest_serial(db: AsyncDatabase, school_id: int, standard: int) -> int:
+    """The largest serial already used by this school+class, or 0."""
+    top = await db.users.find_one(
+        {"school_id": school_id, "standard": standard, "prodigy_id": {"$type": "number"}},
+        sort=[("prodigy_id", -1)],
+    )
+    return serial_of(top["prodigy_id"]) if top else 0
+
+
+async def claim_prodigy_ids(
+    db: AsyncDatabase, school_id: int, standard: int, count: int = 1
+) -> list[int]:
+    """Reserve `count` Prodigy IDs for one school and class.
+
+    The serial counts within a school+class pair, so each class at each school
+    starts again at 001. A single atomic `$inc` rather than "read the highest,
+    add one": two operators adding a student at the same moment would both
+    read the same highest value and both try to use it. One round trip for a
+    whole import, too, instead of one per row.
+    """
+    key = _counter_key(school_id, standard)
+    if await db.counters.find_one({"_id": key}) is None:
+        # First id for this pair on this deployment. Start above anything
+        # already stored - a restored backup, or ids typed by hand before
+        # auto-assignment existed.
+        await db.counters.update_one(
+            {"_id": key},
+            {"$max": {"seq": await _highest_serial(db, school_id, standard)}},
+            upsert=True,
+        )
+
+    doc = await db.counters.find_one_and_update(
+        {"_id": key},
+        {"$inc": {"seq": count}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    end = doc["seq"]
+    return [
+        build_prodigy_id(school_id, standard, serial)
+        for serial in range(end - count + 1, end + 1)
+    ]
+
+
+async def reserve_prodigy_id(
+    db: AsyncDatabase, school_id: int, standard: int, prodigy_id: int
+) -> None:
+    """Push a school+class counter up past a hand-typed id.
+
+    Without this, typing 029500 by hand and then letting the next student in
+    that class be auto-assigned would hand out 001, 002... until it collided
+    with 500 and the unique index rejected a perfectly ordinary save.
+    """
+    await db.counters.update_one(
+        {"_id": _counter_key(school_id, standard)},
+        {"$max": {"seq": serial_of(prodigy_id)}},
+        upsert=True,
+    )
 
 
 async def _drop_stale_index(collection: AsyncCollection, name: str) -> None:

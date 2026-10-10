@@ -90,7 +90,8 @@ export default function ImportPanel({ onImported }) {
       />
       <p className="hint">
         CSV or XLSX. Needs a <strong>name</strong> column and a <strong>roll no</strong>{' '}
-        column; Prodigy ID, school, standard, phone and mail id are picked up when present.
+        column; school, standard, phone and mail id are picked up when present. A Prodigy ID
+        column is used as-is, and students without one are assigned the next free number.
         “Full Name”, “PID”, “Register Number”, “School Name”, “Class”, “Mobile No” and
         “Mail Id” are all recognised.
       </p>
