@@ -759,6 +759,21 @@ button.danger:hover { background: #b91c1c; }
 
 .scan-embedded { margin-top: 4px; }
 
+/* The team being formed, before it is saved. Visibly pending, so it is never
+   mistaken for a team that already exists. */
+.team-buffer {
+  margin: 0 0 12px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.team-buffer .team-head { display: flex; align-items: center; gap: 10px; }
+.team-buffer .team-name { font-weight: 600; }
+.team-buffer .team-members { margin: 8px 0; }
+.team-buffer .team-members li { display: flex; align-items: center; gap: 6px; }
+.team-buffer .button-row { margin-top: 10px; }
+
 .pid-tag {
   margin-left: 6px;
   font-size: 11px;

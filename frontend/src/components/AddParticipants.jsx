@@ -1,12 +1,16 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
-import { createUser, listTeams, listUsers, manualRegister } from '../api'
+import { createTeam, listTeams, listUsers, manualRegister } from '../api'
 import AddUserForm from './AddUserForm'
 import { getDeviceId } from '../lib/device'
+import { markRegistered } from '../lib/roster'
 import { personMeta } from '../lib/person'
 
 // html5-qrcode is ~350KB and only the Scan mode needs it, so it is loaded the
 // first time someone opens that mode rather than with the page.
 const ScannerPanel = lazy(() => import('./ScannerPanel'))
+
+// Picked in the team dropdown to start a team here rather than join one.
+const NEW_TEAM = '__new__'
 
 const MODES = [
   ['scan', 'Scan QR'],
@@ -26,6 +30,14 @@ export default function AddParticipants({ event, refreshKey, onChanged }) {
   const [pid, setPid] = useState('')
   const [query, setQuery] = useState('')
   const [candidates, setCandidates] = useState([])
+
+  // Forming a team here instead of joining one. Members are collected into a
+  // buffer and written in a single call, because a team is created whole -
+  // there is no endpoint that makes a team of one and grows it.
+  const [teamName, setTeamName] = useState('')
+  const [collecting, setCollecting] = useState(false)
+  const [buffer, setBuffer] = useState([])
+  const [committing, setCommitting] = useState(false)
 
   const isTeamEvent = event?.event_type === 'team'
   const isFull = (t) => event?.team_size_max != null && t.size >= event.team_size_max
@@ -65,7 +77,11 @@ export default function AddParticipants({ event, refreshKey, onChanged }) {
   }, [query, mode])
 
   async function register(user) {
-    if (isTeamEvent && !team) {
+    // While a team is being formed, everyone found by any method lands in the
+    // buffer instead of being registered on their own.
+    if (collecting) return addToBuffer(user)
+
+    if (isTeamEvent && (!team || team === NEW_TEAM)) {
       setNote({ ok: false, message: 'Choose which team they are joining first.' })
       return false
     }
@@ -106,6 +122,62 @@ export default function AddParticipants({ event, refreshKey, onChanged }) {
     }
   }
 
+  function addToBuffer(user) {
+    if (buffer.some((m) => m.user_id === user.user_id)) {
+      setNote({ ok: false, message: `${user.name} is already in this team.` })
+      return false
+    }
+    const next = [...buffer, user]
+    setBuffer(next)
+    setNote({
+      ok: true,
+      message: `${user.name} added · ${next.length} of ${event.team_size_min}–${event.team_size_max}`,
+    })
+    // A full team saves itself rather than waiting to be told.
+    if (next.length >= event.team_size_max) commitTeam(next)
+    return true
+  }
+
+  async function commitTeam(members) {
+    const list = members ?? buffer
+    if (list.length === 0) return
+    setCommitting(true)
+    try {
+      const saved = await createTeam(event.event_id, {
+        name: teamName.trim(),
+        member_ids: list.map((m) => m.user_id),
+        device_id: getDeviceId(),
+      })
+      // Mark them locally so the scanner catches a re-scan straight away.
+      for (const m of list) await markRegistered(event.event_id, m.user_id)
+      setBuffer([])
+      setCollecting(false)
+      setTeamName('')
+      setTeam(saved.team_id)
+      setNote({
+        ok: true,
+        message: saved.renamed_from
+          ? `Saved as “${saved.name}” — “${saved.renamed_from}” was already taken.`
+          : `${saved.name} registered with ${saved.size} members.`,
+      })
+      await loadTeams()
+      onChanged?.()
+    } catch (err) {
+      // The buffer is deliberately kept, so a failed save can be retried
+      // without looking every Prodigy ID up again.
+      setNote({ ok: false, message: `Could not save the team: ${err.message}` })
+    } finally {
+      setCommitting(false)
+    }
+  }
+
+  function cancelTeam() {
+    setBuffer([])
+    setCollecting(false)
+    setTeamName('')
+    setNote(null)
+  }
+
   async function handleNew(created) {
     // Created and registered in one go: on an event desk the student standing
     // there is being added *to this event*, not just to the master list.
@@ -136,7 +208,7 @@ export default function AddParticipants({ event, refreshKey, onChanged }) {
         ))}
       </div>
 
-      {isTeamEvent && (
+      {isTeamEvent && !collecting && (
         <>
           <select
             className="search team-picker"
@@ -154,13 +226,84 @@ export default function AddParticipants({ event, refreshKey, onChanged }) {
                 {isFull(t) ? ' (full)' : ''}
               </option>
             ))}
+            <option value={NEW_TEAM}>+ Start a new team…</option>
           </select>
-          <p className="hint">
-            {teams.length
-              ? 'Everyone on a team event belongs to a team, so pick theirs before adding them.'
-              : 'Form the first team by scanning — a team cannot start with one person.'}
-          </p>
+
+          {team === NEW_TEAM ? (
+            <form
+              className="inline-form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!teamName.trim()) return
+                setCollecting(true)
+                setNote({
+                  ok: true,
+                  message: `Now add ${event.team_size_min}–${event.team_size_max} members by Prodigy ID, name, or scanning.`,
+                })
+              }}
+            >
+              <input
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                placeholder="Team name"
+                autoFocus
+              />
+              <button type="submit" disabled={!teamName.trim()}>
+                Start team
+              </button>
+            </form>
+          ) : (
+            <p className="hint">
+              {teams.length
+                ? 'Everyone on a team event belongs to a team, so pick theirs before adding them.'
+                : 'No teams yet — choose “Start a new team” to make the first one.'}
+            </p>
+          )}
         </>
+      )}
+
+      {collecting && (
+        <div className="team-buffer">
+          <div className="team-head">
+            <span className="team-name">{teamName}</span>
+            <span className="team-size">
+              {buffer.length} of {event.team_size_min}–{event.team_size_max}
+            </span>
+          </div>
+          {buffer.length === 0 ? (
+            <p className="hint">Nobody added yet.</p>
+          ) : (
+            <ol className="team-members">
+              {buffer.map((m) => (
+                <li key={m.user_id}>
+                  {m.name}
+                  {m.prodigy_id != null && <span className="pid-tag">PID {m.prodigy_id}</span>}
+                  <button
+                    className="link-button"
+                    onClick={() => setBuffer((b) => b.filter((x) => x.user_id !== m.user_id))}
+                  >
+                    remove
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+          <div className="button-row">
+            <button
+              onClick={() => commitTeam()}
+              disabled={committing || buffer.length < event.team_size_min}
+            >
+              {committing
+                ? 'Saving…'
+                : buffer.length < event.team_size_min
+                  ? `Need ${event.team_size_min - buffer.length} more`
+                  : `Finish team (${buffer.length})`}
+            </button>
+            <button className="secondary" onClick={cancelTeam} disabled={committing}>
+              Cancel team
+            </button>
+          </div>
+        </div>
       )}
 
       {note && <p className={note.ok ? 'ok-note' : 'form-error'}>{note.message}</p>}
