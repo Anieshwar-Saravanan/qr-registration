@@ -120,10 +120,16 @@ async def _ensure_indexes(db: AsyncDatabase) -> None:
     # the unique key and is now an ordinary optional field, so its old unique
     # index has to go or a second person with no email would be rejected.
     await _drop_stale_index(db.users, "email_1")
-    await db.users.create_index("roll_no", unique=True)
-    # Partial, so the uniqueness only applies to students who actually have a
-    # Prodigy ID. A plain unique index treats every missing value as the same
-    # one and would reject the second student left without one.
+    # Both partial, so the uniqueness only applies to students who actually
+    # have the field. A plain unique index treats every missing value as the
+    # same one and would reject the second student left without one.
+    await _drop_stale_index(db.users, "roll_no_1")
+    await db.users.create_index(
+        "roll_no",
+        unique=True,
+        name="uniq_roll_no",
+        partialFilterExpression={"roll_no": {"$type": "string"}},
+    )
     await db.users.create_index(
         "prodigy_id",
         unique=True,

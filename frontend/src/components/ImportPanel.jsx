@@ -89,9 +89,10 @@ export default function ImportPanel({ onImported }) {
         className="file-input"
       />
       <p className="hint">
-        CSV or XLSX. Needs a <strong>name</strong> column and a <strong>roll no</strong>{' '}
-        column; school, standard, phone and mail id are picked up when present. A Prodigy ID
-        column is used as-is, and students without one are assigned the next free number.
+        CSV or XLSX. Only a <strong>name</strong> column is required; roll no, school,
+        standard, phone and mail id are picked up when present. A Prodigy ID column is used
+        as-is, and students with a school and standard but no ID are assigned the next free
+        number for that class.
         “Full Name”, “PID”, “Register Number”, “School Name”, “Class”, “Mobile No” and
         “Mail Id” are all recognised.
       </p>
@@ -158,7 +159,7 @@ export default function ImportPanel({ onImported }) {
                     {problemRows.map((r) => (
                       <tr key={r.row_number}>
                         <td className="row-num">Row {r.row_number}</td>
-                        <td>{r.data?.roll_no || r.raw.roll_no || r.data?.name || r.raw.name || '—'}</td>
+                        <td>{r.data?.name || r.raw.name || r.data?.roll_no || r.raw.roll_no || '—'}</td>
                         <td className={`status-${r.status}`}>
                           {r.error || STATUS_LABELS[r.status]}
                         </td>

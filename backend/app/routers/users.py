@@ -125,9 +125,19 @@ async def create_user(payload: UserCreate) -> UserOut:
     except DuplicateKeyError:
         raise HTTPException(
             status_code=409,
+            # Either unique field could be the one that clashed; naming both
+            # is more useful than guessing wrong.
             detail=(
-                f"Roll no {payload.roll_no} or Prodigy ID {payload.prodigy_id} "
-                "is already on the attendee list."
+                "Already on the student list: "
+                + " / ".join(
+                    part
+                    for part in (
+                        f"roll no {payload.roll_no}" if payload.roll_no else None,
+                        f"Prodigy ID {doc['prodigy_id']}" if doc.get("prodigy_id") else None,
+                    )
+                    if part
+                )
+                + "."
             ),
         )
     return to_user_out(doc)
@@ -166,6 +176,58 @@ async def get_user(user_id: str) -> UserOut:
 # Spreadsheet import
 # --------------------------------------------------------------------------
 
+@router.delete("/{user_id}", status_code=200)
+async def delete_user(
+    user_id: str,
+    force: bool = Query(
+        False,
+        description="Required to delete a student who is registered for an event.",
+    ),
+) -> dict:
+    """Delete a student, with their registrations and team memberships.
+
+    Refused without `force` once they are registered for anything, so a
+    misplaced click cannot quietly undo a day's scanning. The refusal reports
+    the counts, which is what the confirmation shows back to the organiser.
+
+    Saved winner placings are left alone: those are snapshots taken when the
+    result was announced, and a result should not change because somebody
+    tidied up the student list afterwards.
+    """
+    user = await _find_user_or_404(user_id)
+    db = get_db()
+
+    registrations = await db.registrations.count_documents({"user_id": user_id})
+    teams = await db.teams.count_documents({"members.user_id": user_id})
+
+    if registrations and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{user['name']} is registered for {registrations} "
+                f"event{'s' if registrations != 1 else ''}."
+            ),
+        )
+
+    await db.registrations.delete_many({"user_id": user_id})
+    # Pull them out of any team and keep `size` honest, then clear out teams
+    # that no longer have anybody in them.
+    if teams:
+        await db.teams.update_many(
+            {"members.user_id": user_id},
+            {"$pull": {"members": {"user_id": user_id}}, "$inc": {"size": -1}},
+        )
+        await db.teams.delete_many({"size": {"$lte": 0}})
+    await db.users.delete_one({"user_id": user_id})
+
+    return {
+        "deleted": True,
+        "name": user["name"],
+        "registrations_removed": registrations,
+        "teams_affected": teams,
+    }
+
+
 @router.post("/import/preview", response_model=ImportPreview)
 async def preview_import(file: UploadFile = File(...)) -> ImportPreview:
     """Parse and validate an uploaded sheet WITHOUT writing anything.
@@ -190,7 +252,8 @@ async def preview_import(file: UploadFile = File(...)) -> ImportPreview:
     existing_rolls: set[str] = set()
     existing_pids: set[int] = set()
     async for doc in get_db().users.find({}, {"roll_no": 1, "prodigy_id": 1, "_id": 0}):
-        existing_rolls.add(doc["roll_no"])
+        if doc.get("roll_no"):
+            existing_rolls.add(doc["roll_no"])
         if doc.get("prodigy_id") is not None:
             existing_pids.add(doc["prodigy_id"])
 

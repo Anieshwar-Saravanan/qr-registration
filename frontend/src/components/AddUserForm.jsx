@@ -48,7 +48,7 @@ export default function AddUserForm({ onCreated, embedded = false }) {
       const listed = form.school_id && form.school_id !== OTHER
       const created = await createUser({
         name: form.name.trim(),
-        roll_no: form.roll_no.trim(),
+        roll_no: blank(form.roll_no),
         prodigy_id: form.prodigy_id ? Number(form.prodigy_id) : null,
         school_id: listed ? Number(form.school_id) : null,
         // Only "Other" carries a typed name; a listed school is named by the
@@ -95,8 +95,8 @@ export default function AddUserForm({ onCreated, embedded = false }) {
           />
         </label>
         <label>
-          Roll no <span className="req">*</span>
-          <input value={form.roll_no} onChange={update('roll_no')} required placeholder="9A01" />
+          Roll no
+          <input value={form.roll_no} onChange={update('roll_no')} placeholder="9A01" />
         </label>
       </div>
       <p className="hint">

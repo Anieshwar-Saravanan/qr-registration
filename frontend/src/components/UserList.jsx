@@ -9,6 +9,7 @@ export default function UserList({
   onQueryChange,
   selectedId,
   onSelect,
+  onDelete,
   loading,
   onLoadMore,
 }) {
@@ -69,23 +70,35 @@ export default function UserList({
                   >
                     <td className="cell-roll">{u.prodigy_id ?? '—'}</td>
                     <td className="cell-name">{u.name}</td>
-                    <td className="cell-roll">{u.roll_no}</td>
+                    <td className="cell-roll">{u.roll_no || '—'}</td>
                     <td className="cell-muted cell-wrap" title={u.school || ''}>
                       {u.school || '—'}
                     </td>
                     <td className="cell-muted">{standardLabel(u.standard) ?? '—'}</td>
                     <td className="col-action">
-                      <button
-                        className="remove-btn"
-                        onClick={(e) => {
-                          // The row itself is clickable, so without this the
-                          // dialog would open and immediately re-open.
-                          e.stopPropagation()
-                          onSelect(u)
-                        }}
-                      >
-                        QR
-                      </button>
+                      <div className="row-actions">
+                        <button
+                          className="remove-btn"
+                          onClick={(e) => {
+                            // The row itself is clickable, so without this the
+                            // dialog would open and immediately re-open.
+                            e.stopPropagation()
+                            onSelect(u)
+                          }}
+                        >
+                          QR
+                        </button>
+                        <button
+                          className="remove-btn"
+                          title={`Delete ${u.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onDelete(u)
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -58,6 +58,12 @@ export function listUsers({ q = '', limit = 50, offset = 0 } = {}) {
  *  place rather than being duplicated here. */
 export const listSchools = () => request('/api/users/schools')
 
+/** Deletes a student along with their registrations and team memberships.
+ *  The backend refuses without `force` once they are registered for
+ *  anything, so the caller must have confirmed. */
+export const deleteUser = (userId, { force = false } = {}) =>
+  request(`/api/users/${userId}?force=${force}`, { method: 'DELETE' })
+
 export const createUser = (user) =>
   request('/api/users', {
     method: 'POST',

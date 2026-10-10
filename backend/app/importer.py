@@ -219,19 +219,13 @@ def parse_rows(
     header, *data_rows = rows
     mapping, unmapped = map_columns(header)
 
-    # Name and roll number are the two required fields, so a sheet without
-    # them cannot be imported at all - better to say so once than to mark
-    # every row invalid.
-    missing = [
-        label
-        for field, label in (("name", "name"), ("roll_no", "roll no"))
-        if field not in mapping.values()
-    ]
-    if missing:
+    # The name is the only required field, so a sheet without one cannot be
+    # imported at all - better to say so once than to mark every row invalid.
+    if "name" not in mapping.values():
         found = ", ".join(h for h in header if h) or "none"
         raise ValueError(
-            f"Could not find a {' column and a '.join(missing)} column. "
-            f"Columns found: {found}. Rename them to 'Name' and 'Roll No' and try again."
+            f"Could not find a name column. Columns found: {found}. "
+            "Rename one to 'Name' and try again."
         )
 
     if len(data_rows) > MAX_ROWS:
@@ -274,19 +268,26 @@ def parse_rows(
             )
             continue
 
-        # Both the roll number and the Prodigy ID are unique in the database,
-        # so both are checked here. Catching a clash in the preview is the
-        # whole point of the preview - letting it through means a row that
-        # looks importable and then fails on the unique index.
-        if user.roll_no in seen_rolls or user.prodigy_id in seen_pids:
+        # Roll number and Prodigy ID are both unique in the database, so both
+        # are checked - but both are now optional, and a row with neither
+        # cannot be matched against anything. Catching a clash in the preview
+        # is the whole point of the preview: letting it through means a row
+        # that looks importable and then fails on the unique index.
+        clashes_in_file = (user.roll_no is not None and user.roll_no in seen_rolls) or (
+            user.prodigy_id is not None and user.prodigy_id in seen_pids
+        )
+        clashes_in_db = (
+            user.roll_no is not None and user.roll_no in existing_roll_nos
+        ) or (user.prodigy_id is not None and user.prodigy_id in existing_prodigy_ids)
+
+        if clashes_in_file:
             status = "duplicate_in_file"
-        elif user.roll_no in existing_roll_nos or (
-            user.prodigy_id is not None and user.prodigy_id in existing_prodigy_ids
-        ):
+        elif clashes_in_db:
             status = "already_exists"
         else:
             status = "ok"
-            seen_rolls.add(user.roll_no)
+            if user.roll_no is not None:
+                seen_rolls.add(user.roll_no)
             if user.prodigy_id is not None:
                 seen_pids.add(user.prodigy_id)
 

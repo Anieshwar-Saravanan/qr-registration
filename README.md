@@ -105,6 +105,8 @@ regardless.
 | `GET` | `/api/users/{user_id}/qr` | QR as PNG (`?format=base64` for a data URI) |
 | `POST` | `/api/users/import/preview` | Parse a .csv/.xlsx and report what would happen — **writes nothing** |
 | `POST` | `/api/users/bulk` | Commit many attendees, skipping existing roll nos |
+| `DELETE` | `/api/users/{user_id}` | Delete a student with their registrations and team memberships |
+| `GET` | `/api/users/schools` | The participating schools, for the dropdown |
 | `GET` | `/api/users/qr/export.zip` | Every QR as a ZIP of PNGs (respects `?q=`) |
 | `GET` | `/api/users/qr/export.pdf` | Printable badge sheet, 16 per A4 (respects `?q=`) |
 | `POST` | `/api/users/qr/export.pdf` | Badge sheet for a specific `user_ids` list |
@@ -249,6 +251,21 @@ produced exactly 1 team and 7 clear rejections, with nobody in two teams.
 
 Disbanding a team removes its member registrations too — they were only
 registered as part of it.
+
+## Deleting a student
+
+`DELETE /api/users/{id}` removes the student, their registrations, and pulls
+them out of any team — a team left with nobody in it is deleted too. Without
+`?force=true` it **refuses** anyone who is registered for an event, naming the
+count; the UI asks once, and only asks a second time with those counts if the
+server pushes back. A misplaced click cannot quietly undo a day's scanning.
+
+**Saved winner placings are deliberately left alone.** A placing is a snapshot
+taken when the result was announced, and a result should not change because
+somebody tidied up the student list afterwards. `_user_winner_entries` falls
+back to that snapshot for a student who no longer exists, so the list can still
+be reordered and re-saved — the same thing team placings already do for a
+disbanded team.
 
 ## Attendee table
 
@@ -515,10 +532,13 @@ the list. A spreadsheet carrying school *names* has them matched back to ids
 with punctuation and case ignored; once a row has an id, the stored name is the
 canonical one, so twelve spellings of the same school cannot accumulate.
 
-**The roll number is the identity.** It is the unique index, what import
-duplicate-detection keys on, and what a 409 names. It is stored upper-cased
-with internal whitespace collapsed, because the unique index is case-sensitive
-and `21cs001` and `21CS001` are the same person.
+**Roll number and Prodigy ID are both unique when present**, each via a partial
+index — a plain unique index treats every missing value as the same one and
+would reject the second student left without a roll number. Import
+duplicate-detection checks whichever of the two a row actually has; a row with
+neither cannot be matched against anything, and is imported as new. Roll
+numbers are stored upper-cased with internal whitespace collapsed, because the
+index is case-sensitive and `9a01` and `9A01` are the same student.
 
 Email is an ordinary optional field. It used to be the unique key, so
 `_ensure_indexes` drops the old `email_1` index on startup: an index outlives

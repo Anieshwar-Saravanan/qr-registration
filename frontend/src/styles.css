@@ -722,6 +722,7 @@ button.danger:hover { background: #b91c1c; }
   font-weight: 400;
 }
 
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .reg-table tr.clickable { cursor: pointer; }
 .reg-table tr.clickable:hover { background: var(--bg); }
 

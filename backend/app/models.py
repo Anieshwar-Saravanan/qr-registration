@@ -16,16 +16,16 @@ STANDARD_MIN, STANDARD_MAX = 9, 12
 class UserCreate(BaseModel):
     """One student on the attendee list.
 
-    Only name and roll number are required. Everything else is optional so a
-    patchy spreadsheet column does not reject otherwise-good rows - a blank
-    shows as an em dash rather than blocking the import.
+    Only the name is required. Everything else is optional so a patchy
+    spreadsheet column does not reject otherwise-good rows - a blank shows as
+    an em dash rather than blocking the import.
     """
 
     # Validated in `require_name` rather than with min_length, so a name of
     # only spaces reports "Name is required" instead of Pydantic's
     # "String should have at least 1 character".
     name: str = Field(max_length=120)
-    roll_no: str = Field(max_length=40)
+    roll_no: str | None = Field(default=None, max_length=40)
     # Typed in by hand for now. Optional, but unique when given - the index is
     # partial, so any number of students can be left without one.
     prodigy_id: int | None = Field(default=None, ge=1)
@@ -47,14 +47,11 @@ class UserCreate(BaseModel):
 
     @field_validator("roll_no")
     @classmethod
-    def require_roll_no(cls, v: str) -> str:
+    def clean_roll_no(cls, v: str | None) -> str | None:
         # Upper-cased and space-collapsed because the unique index is
         # case-sensitive: without this "21cs001" and "21CS001" would both
-        # insert as separate people.
-        roll = " ".join((v or "").split()).upper()
-        if not roll:
-            raise ValueError("Roll no is required.")
-        return roll
+        # insert as separate people. Blank means "not recorded".
+        return " ".join((v or "").split()).upper() or None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -107,7 +104,7 @@ class UserCreate(BaseModel):
 class UserOut(BaseModel):
     user_id: str
     name: str
-    roll_no: str
+    roll_no: str | None = None
     prodigy_id: int | None = None
     school_id: int | None = None
     school: str | None = None

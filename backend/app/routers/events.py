@@ -292,13 +292,14 @@ async def set_winners(event_id: str, payload: WinnersUpdate) -> list[WinnerOut]:
     if is_team_event:
         entries = await _team_winner_entries(event, payload)
     else:
-        entries = await _user_winner_entries(event["event_id"], payload)
+        entries = await _user_winner_entries(event, payload)
 
     await get_db().events.update_one({"event_id": event_id}, {"$set": {"winners": entries}})
     return [to_winner_out(w) for w in entries]
 
 
-async def _user_winner_entries(event_id: str, payload: WinnersUpdate) -> list[dict]:
+async def _user_winner_entries(event: dict, payload: WinnersUpdate) -> list[dict]:
+    event_id = event["event_id"]
     ids = [w.user_id for w in payload.winners]
     if len(set(ids)) != len(ids):
         raise HTTPException(status_code=400, detail="The same person cannot win twice.")
@@ -307,10 +308,16 @@ async def _user_winner_entries(event_id: str, payload: WinnersUpdate) -> list[di
         doc["user_id"]: doc
         async for doc in get_db().users.find({"user_id": {"$in": ids}})
     }
-    missing = [uid for uid in ids if uid not in users]
+    # A student deleted after being announced keeps their placing: the
+    # snapshot already on the event stands in for the deleted record, so
+    # reordering the rest does not drop the row from the results image.
+    snapshots = {
+        w["user_id"]: w for w in event.get("winners", []) if w.get("user_id")
+    }
+    missing = [uid for uid in ids if uid not in users and uid not in snapshots]
     if missing:
         raise HTTPException(
-            status_code=404, detail=f"{len(missing)} of those attendees no longer exist."
+            status_code=404, detail=f"{len(missing)} of those students no longer exist."
         )
 
     # The score lives on the registration, not the attendee: the same student
@@ -329,8 +336,8 @@ async def _user_winner_entries(event_id: str, payload: WinnersUpdate) -> list[di
             {
                 "rank": w.rank,
                 "user_id": w.user_id,
-                "score": scores.get(w.user_id),
-                **person_snapshot(users[w.user_id]),
+                "score": scores.get(w.user_id, snapshots.get(w.user_id, {}).get("score")),
+                **person_snapshot(users.get(w.user_id) or snapshots[w.user_id]),
             }
             for w in payload.winners
         ),

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { listUsers } from './api'
+import { deleteUser, listUsers } from './api'
 import AddUserForm from './components/AddUserForm'
 import ImportPanel from './components/ImportPanel'
 import UserList from './components/UserList'
@@ -54,6 +54,33 @@ export default function App() {
   }, [query, reloadKey])
 
   const refresh = useCallback(() => setReloadKey((k) => k + 1), [])
+
+  async function handleDelete(user) {
+    const label = `${user.name}${user.prodigy_id != null ? ` (PID ${user.prodigy_id})` : ''}`
+    if (!confirm(`Delete ${label}?\n\nThis cannot be undone.`)) return
+    try {
+      // Unforced first, so the server can report what is attached before
+      // anything is destroyed; the counts then go into the second prompt.
+      await deleteUser(user.user_id)
+    } catch (err) {
+      if (err.status !== 409) {
+        setError(err.message)
+        return
+      }
+      if (!confirm(`${err.message}\n\nDelete them and those registrations anyway?`)) return
+      try {
+        await deleteUser(user.user_id, { force: true })
+      } catch (forced) {
+        setError(forced.message)
+        return
+      }
+    }
+    // The QR dialog is showing someone who no longer exists.
+    if (selected?.user_id === user.user_id) setSelected(null)
+    setError(null)
+    refresh()
+    refreshRegistrations()
+  }
   const refreshRegistrations = useCallback(() => setRegKey((k) => k + 1), [])
 
   async function loadMore() {
@@ -108,6 +135,7 @@ export default function App() {
               onQueryChange={setQuery}
               selectedId={selected?.user_id}
               onSelect={setSelected}
+              onDelete={handleDelete}
               loading={loading}
               onLoadMore={loadMore}
             />
